@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Loader</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+    <h2>Loader Endpoint</h2>
+    <p>If you see this page, the loader is online.</p>
+
+    <pre id="status">Loading...</pre>
+
+    <script>
+        fetch("./loader/loader.lua", { cache: "no-store" })
+            .then(res => {
+                if (!res.ok) throw new Error("Failed to fetch loader");
+                return res.text();
+            })
+            .then(code => {
+                document.getElementById("status").textContent =
+                    "Loader loaded successfully (" + code.length + " bytes)";
+            })
+            .catch(err => {
+                document.getElementById("status").textContent =
+                    "Error: " + err.message;
+            });
+    </script>
+</body>
+</html>
