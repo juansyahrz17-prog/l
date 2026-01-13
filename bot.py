@@ -305,7 +305,20 @@ class TicketControlView(ui.View):
         if ticket_creator:
             await channel.set_permissions(ticket_creator, view_channel=True, send_messages=True)
 
+        # Send response first
         await interaction.response.send_message(f"✅ {user.mention} telah **claim** ticket ini! Ticket sekarang hanya terlihat oleh kamu dan pembuat ticket.", ephemeral=False)
+        
+        # Auto-send /whitelist command for the ticket creator
+        if ticket_creator:
+            try:
+                # Send /whitelist command to the channel
+                await channel.send(f"/whitelist {ticket_creator.mention}")
+                # Optional: Send a follow-up message
+                await channel.send(f"🤖 Otomatis menjalankan whitelist untuk {ticket_creator.mention}")
+            except Exception as e:
+                print(f"[ERROR] Gagal menjalankan /whitelist: {e}")
+                await channel.send(f"⚠️ Gagal menjalankan whitelist otomatis. Silakan jalankan manual: `/whitelist {ticket_creator.mention}`")
+        
         return True
 
     async def close_ticket_callback(self, interaction: Interaction):
