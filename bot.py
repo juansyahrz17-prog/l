@@ -129,6 +129,94 @@ def remove_done_ticket(channel_id):
         save_done_tickets()
 
 # ---------------------------
+# LOAD / SAVE COOLDOWNS (5 tickets per 3 hours)
+# ---------------------------
+COOLDOWN_FILE = os.path.join(BASE_DIR, "cooldowns.json")
+COOLDOWN_LIMIT = 5  # Max tickets per cooldown period
+COOLDOWN_HOURS = 2  # Hours to wait after hitting limit
+
+if not os.path.exists(COOLDOWN_FILE):
+    with open(COOLDOWN_FILE, "w") as f:
+        json.dump({}, f, indent=4)
+    staff_cooldowns = {}
+else:
+    with open(COOLDOWN_FILE, "r") as f:
+        try:
+            staff_cooldowns = json.load(f)
+        except json.JSONDecodeError:
+            staff_cooldowns = {}
+
+def save_cooldowns():
+    with open(COOLDOWN_FILE, "w") as f:
+        json.dump(staff_cooldowns, f, indent=4)
+
+def add_claim_to_cooldown(staff_id):
+    """Add a claim to staff's cooldown tracker"""
+    staff_key = str(staff_id)
+    now = datetime.datetime.now().isoformat()
+    
+    if staff_key not in staff_cooldowns:
+        staff_cooldowns[staff_key] = {"claims": [], "cooldown_until": None}
+    
+    # Add new claim
+    staff_cooldowns[staff_key]["claims"].append(now)
+    
+    # Keep only recent claims (within cooldown period)
+    cutoff = datetime.datetime.now() - datetime.timedelta(hours=COOLDOWN_HOURS)
+    staff_cooldowns[staff_key]["claims"] = [
+        claim for claim in staff_cooldowns[staff_key]["claims"]
+        if datetime.datetime.fromisoformat(claim) > cutoff
+    ]
+    
+    # If reached limit, set cooldown
+    if len(staff_cooldowns[staff_key]["claims"]) >= COOLDOWN_LIMIT:
+        cooldown_until = datetime.datetime.now() + datetime.timedelta(hours=COOLDOWN_HOURS)
+        staff_cooldowns[staff_key]["cooldown_until"] = cooldown_until.isoformat()
+    
+    save_cooldowns()
+
+def is_staff_on_cooldown(staff_id):
+    """Check if staff is on cooldown"""
+    staff_key = str(staff_id)
+    
+    if staff_key not in staff_cooldowns:
+        return False, None
+    
+    cooldown_until_str = staff_cooldowns[staff_key].get("cooldown_until")
+    if not cooldown_until_str:
+        return False, None
+    
+    cooldown_until = datetime.datetime.fromisoformat(cooldown_until_str)
+    now = datetime.datetime.now()
+    
+    if now < cooldown_until:
+        # Still on cooldown
+        time_left = cooldown_until - now
+        return True, time_left
+    else:
+        # Cooldown expired, reset
+        staff_cooldowns[staff_key]["claims"] = []
+        staff_cooldowns[staff_key]["cooldown_until"] = None
+        save_cooldowns()
+        return False, None
+
+def get_claim_count(staff_id):
+    """Get current claim count for staff"""
+    staff_key = str(staff_id)
+    if staff_key not in staff_cooldowns:
+        return 0
+    
+    # Clean old claims
+    cutoff = datetime.datetime.now() - datetime.timedelta(hours=COOLDOWN_HOURS)
+    staff_cooldowns[staff_key]["claims"] = [
+        claim for claim in staff_cooldowns[staff_key]["claims"]
+        if datetime.datetime.fromisoformat(claim) > cutoff
+    ]
+    save_cooldowns()
+    
+    return len(staff_cooldowns[staff_key]["claims"])
+
+# ---------------------------
 # LOAD / SAVE SALES
 # ---------------------------
 if not os.path.exists(SALES_FILE):
@@ -434,6 +522,20 @@ class TicketControlView(ui.View):
             )
             return False
 
+        # Check if staff is on cooldown
+        on_cooldown, time_left = is_staff_on_cooldown(user.id)
+        if on_cooldown:
+            hours = int(time_left.total_seconds() // 3600)
+            minutes = int((time_left.total_seconds() % 3600) // 60)
+            await interaction.response.send_message(
+                f"⏰ **Kamu sedang dalam cooldown!**\n\n"
+                f"Kamu sudah claim {COOLDOWN_LIMIT} ticket dalam {COOLDOWN_HOURS} jam terakhir.\n"
+                f"Cooldown berakhir dalam: **{hours} jam {minutes} menit**\n\n"
+                f"Biarkan staff lain juga dapat kesempatan claim ticket! 😊",
+                ephemeral=True
+            )
+            return False
+
         # Check if already claimed
         existing_claim = get_claim(channel.id)
         if existing_claim:
@@ -448,6 +550,13 @@ class TicketControlView(ui.View):
 
         # Add claim
         add_claim(channel.id, user.id)
+        
+        # Add to cooldown tracker
+        add_claim_to_cooldown(user.id)
+        
+        # Get current claim count
+        claim_count = get_claim_count(user.id)
+        remaining = COOLDOWN_LIMIT - claim_count
 
         # Find ticket creator
         ticket_creator_id = None
@@ -470,7 +579,17 @@ class TicketControlView(ui.View):
         if ticket_creator:
             await channel.set_permissions(ticket_creator, view_channel=True, send_messages=True)
 
-        await interaction.response.send_message(f"✅ {user.mention} telah **claim** ticket ini! Ticket sekarang hanya terlihat oleh kamu dan pembuat ticket.", ephemeral=False)
+        # Success message with quota info
+        quota_msg = ""
+        if remaining > 0:
+            quota_msg = f"\n\n📊 Sisa quota: **{remaining}/{COOLDOWN_LIMIT}** ticket (reset dalam {COOLDOWN_HOURS} jam)"
+        else:
+            quota_msg = f"\n\n⚠️ Quota habis! Cooldown {COOLDOWN_HOURS} jam dimulai sekarang."
+        
+        await interaction.response.send_message(
+            f"✅ {user.mention} telah **claim** ticket ini! Ticket sekarang hanya terlihat oleh kamu dan pembuat ticket.{quota_msg}",
+            ephemeral=False
+        )
         return True
 
 
