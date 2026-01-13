@@ -1177,29 +1177,93 @@ async def remove_user(interaction: dc.Interaction, user: dc.Member):
         ephemeral=False
     )
 
-@client.tree.command(name="sales", description="Catat penjualan premium")
+@client.tree.command(name="sales", description="Catat penjualan atau lihat leaderboard")
 @app_commands.describe(
-    staff="Staff yang melakukan penjualan",
-    amount="Jumlah penjualan (IDR)",
-    description="Deskripsi penjualan (opsional)"
+    staff="(Opsional) Staff yang melakukan penjualan - kosongkan untuk lihat leaderboard",
+    amount="(Opsional) Jumlah penjualan (IDR)",
+    description="(Opsional) Deskripsi penjualan"
 )
 async def sales(
     interaction: dc.Interaction,
-    staff: dc.Member,
-    amount: int,
+    staff: dc.Member = None,
+    amount: int = None,
     description: str = "Premium Sale"
 ):
-    # Only staff can record sales
     staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
     helper_role = interaction.guild.get_role(HELPER_ROLE_ID)
     
+    # Check if user is staff/helper
     if staff_role not in interaction.user.roles and helper_role not in interaction.user.roles:
         return await interaction.response.send_message(
-            "❌ Hanya staff yang bisa mencatat penjualan.",
+            "❌ Hanya staff yang bisa menggunakan command ini.",
             ephemeral=True
         )
     
-    # Add the sale
+    # If no parameters, show leaderboard
+    if staff is None or amount is None:
+        # Get all sales data and sort by total
+        leaderboard = []
+        for staff_id_str, data in sales_data.items():
+            staff_id = int(staff_id_str)
+            member = interaction.guild.get_member(staff_id)
+            if member:
+                leaderboard.append({
+                    "member": member,
+                    "total": data["total"],
+                    "count": len(data["sales"])
+                })
+        
+        # Sort by total sales (descending)
+        leaderboard.sort(key=lambda x: x["total"], reverse=True)
+        
+        if not leaderboard:
+            return await interaction.response.send_message(
+                "📊 Belum ada data penjualan yang tercatat.",
+                ephemeral=True
+            )
+        
+        # Create leaderboard embed
+        embed = dc.Embed(
+            title="🏆 Leaderboard Penjualan",
+            description="Top staff berdasarkan total penjualan",
+            color=VORA_BLUE
+        )
+        
+        # Add top 10 to leaderboard
+        leaderboard_text = ""
+        medals = ["🥇", "🥈", "🥉"]
+        for idx, entry in enumerate(leaderboard[:10], 1):
+            medal = medals[idx-1] if idx <= 3 else f"**{idx}.**"
+            commission = int(entry["total"] * 0.10)
+            leaderboard_text += (
+                f"{medal} {entry['member'].mention}\n"
+                f"   💰 Sales: IDR {entry['total']:,} | "
+                f"💵 Gaji: IDR {commission:,} | "
+                f"📦 {entry['count']} transaksi\n\n"
+            )
+        
+        embed.add_field(
+            name="📊 Top Performers",
+            value=leaderboard_text or "Tidak ada data",
+            inline=False
+        )
+        
+        # Calculate total sales across all staff
+        total_all_sales = sum(entry["total"] for entry in leaderboard)
+        total_transactions = sum(entry["count"] for entry in leaderboard)
+        
+        embed.add_field(
+            name="📈 Total Keseluruhan",
+            value=f"Sales: IDR {total_all_sales:,} | Transaksi: {total_transactions}",
+            inline=False
+        )
+        
+        embed.set_footer(text="VoraHub Sales Tracker • Komisi 10%")
+        
+        await interaction.response.send_message(embed=embed)
+        return
+    
+    # Record sale (original functionality)
     add_sale(staff.id, amount, description)
     
     # Get updated stats
@@ -1220,10 +1284,16 @@ async def sales(
     
     await interaction.response.send_message(embed=embed)
 
-@client.tree.command(name="mygaji", description="Lihat total penjualan dan gaji kamu")
-async def mygaji(interaction: dc.Interaction):
-    # Get sales data for the user
-    staff_sales = get_sales(interaction.user.id)
+@client.tree.command(name="mygaji", description="Lihat total penjualan dan gaji staff")
+@app_commands.describe(
+    staff="(Opsional) Staff yang ingin dilihat gajinya - kosongkan untuk lihat gaji sendiri"
+)
+async def mygaji(interaction: dc.Interaction, staff: dc.Member = None):
+    # If no staff specified, use the command user
+    target_user = staff if staff else interaction.user
+    
+    # Get sales data for the target user
+    staff_sales = get_sales(target_user.id)
     total_sales = staff_sales["total"]
     sales_list = staff_sales["sales"]
     
@@ -1233,13 +1303,12 @@ async def mygaji(interaction: dc.Interaction):
     
     if total_sales == 0:
         return await interaction.response.send_message(
-            "📊 Kamu belum memiliki penjualan yang tercatat.",
-            ephemeral=True
+            f"📊 {target_user.mention} belum memiliki penjualan yang tercatat."
         )
     
     embed = dc.Embed(
         title="💼 Laporan Gaji & Penjualan",
-        description=f"Data untuk {interaction.user.mention}",
+        description=f"Data untuk {target_user.mention}",
         color=VORA_BLUE
     )
     
@@ -1276,7 +1345,7 @@ async def mygaji(interaction: dc.Interaction):
     
     embed.set_footer(text="VoraHub Sales Tracker • Data diperbarui real-time")
     
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=embed)
 
 from dotenv import load_dotenv
 import os
