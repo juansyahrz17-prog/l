@@ -241,6 +241,8 @@ class TicketControlView(ui.View):
         self.is_premium = is_premium
         # Claim ticket button
         self.add_item(ui.Button(label="Claim Ticket", style=dc.ButtonStyle.green, emoji="✋", custom_id="claim_ticket"))
+        # Done button (for ticket creator to confirm completion)
+        self.add_item(ui.Button(label="Done", style=dc.ButtonStyle.success, emoji="✅", custom_id="done_ticket"))
         # Close ticket button
         self.add_item(ui.Button(label="Close Ticket", style=dc.ButtonStyle.red, emoji="🔒", custom_id="close_ticket"))
         # Payment button if premium
@@ -251,6 +253,8 @@ class TicketControlView(ui.View):
         cid = interaction.data.get("custom_id")
         if cid == "claim_ticket":
             return await self.claim_ticket_callback(interaction)
+        elif cid == "done_ticket":
+            return await self.done_ticket_callback(interaction)
         elif cid == "close_ticket":
             return await self.close_ticket_callback(interaction)
         elif cid == "pay_now":
@@ -305,20 +309,76 @@ class TicketControlView(ui.View):
         if ticket_creator:
             await channel.set_permissions(ticket_creator, view_channel=True, send_messages=True)
 
-        # Send response first
         await interaction.response.send_message(f"✅ {user.mention} telah **claim** ticket ini! Ticket sekarang hanya terlihat oleh kamu dan pembuat ticket.", ephemeral=False)
-        
-        # Auto-send /whitelist command for the ticket creator
-        if ticket_creator:
-            try:
-                # Send /whitelist command to the channel
-                await channel.send(f"/whitelist {ticket_creator.mention}")
-                # Optional: Send a follow-up message
-                await channel.send(f"🤖 Otomatis menjalankan whitelist untuk {ticket_creator.mention}")
-            except Exception as e:
-                print(f"[ERROR] Gagal menjalankan /whitelist: {e}")
-                await channel.send(f"⚠️ Gagal menjalankan whitelist otomatis. Silakan jalankan manual: `/whitelist {ticket_creator.mention}`")
-        
+        return True
+
+    async def done_ticket_callback(self, interaction: Interaction):
+        user = interaction.user
+        guild = interaction.guild
+        channel = interaction.channel
+
+        # Find ticket creator
+        ticket_creator_id = None
+        for uid, cid in active_tickets.items():
+            if cid == channel.id:
+                ticket_creator_id = uid
+                break
+
+        # Check if user is the ticket creator
+        if user.id != ticket_creator_id:
+            await interaction.response.send_message("❌ Hanya pembuat ticket yang bisa menekan tombol Done.", ephemeral=True)
+            return False
+
+        # Check if ticket is claimed
+        claimer_id = get_claim(channel.id)
+        if not claimer_id:
+            await interaction.response.send_message("❌ Ticket ini belum di-claim oleh staff. Tidak ada yang bisa dikreditkan.", ephemeral=True)
+            return False
+
+        # Get claimer member
+        claimer = guild.get_member(claimer_id)
+        if not claimer:
+            await interaction.response.send_message("❌ Staff yang claim ticket tidak ditemukan.", ephemeral=True)
+            return False
+
+        # Determine sale amount based on ticket type
+        is_premium = self.is_premium
+        sale_amount = 20000 if is_premium else 0  # Default premium price
+
+        if sale_amount == 0:
+            await interaction.response.send_message("❌ Ticket ini bukan ticket premium, tidak ada sales yang dicatat.", ephemeral=True)
+            return False
+
+        # Add sale to the claimer
+        add_sale(claimer_id, sale_amount, f"Premium Sale - Ticket {channel.name}")
+
+        # Get updated stats
+        staff_sales = get_sales(claimer_id)
+        total = staff_sales["total"]
+
+        # Send confirmation
+        embed = dc.Embed(
+            title="✅ Ticket Selesai & Sales Tercatat",
+            description=f"Terima kasih {user.mention}! Ticket telah ditandai selesai.",
+            color=VORA_BLUE
+        )
+        embed.add_field(name="Staff yang Handle", value=claimer.mention, inline=True)
+        embed.add_field(name="Credit Sales", value=f"IDR {sale_amount:,}", inline=True)
+        embed.add_field(name="Total Sales Staff", value=f"IDR {total:,}", inline=True)
+        embed.set_footer(text="VoraHub Sales Tracker")
+
+        await interaction.response.send_message(embed=embed)
+
+        # Notify the claimer
+        try:
+            await claimer.send(
+                f"🎉 Selamat! Kamu mendapat credit sales **IDR {sale_amount:,}** dari ticket **{channel.name}**!\n"
+                f"Total sales kamu sekarang: **IDR {total:,}**"
+            )
+        except:
+            # If DM fails, send in channel
+            await channel.send(f"🎉 {claimer.mention} mendapat credit sales **IDR {sale_amount:,}**!")
+
         return True
 
     async def close_ticket_callback(self, interaction: Interaction):
