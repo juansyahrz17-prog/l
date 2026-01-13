@@ -129,11 +129,12 @@ def remove_done_ticket(channel_id):
         save_done_tickets()
 
 # ---------------------------
-# LOAD / SAVE COOLDOWNS (5 tickets per 3 hours)
+# LOAD / SAVE COOLDOWNS (Hybrid: 20min reset OR 2hour cooldown)
 # ---------------------------
 COOLDOWN_FILE = os.path.join(BASE_DIR, "cooldowns.json")
-COOLDOWN_LIMIT = 5  # Max tickets per cooldown period
-COOLDOWN_HOURS = 2  # Hours to wait after hitting limit
+COOLDOWN_LIMIT = 5  # Max tickets
+RESET_MINUTES = 20  # Reset time if not exhausted
+COOLDOWN_HOURS = 2  # Cooldown time if exhausted
 
 if not os.path.exists(COOLDOWN_FILE):
     with open(COOLDOWN_FILE, "w") as f:
@@ -153,68 +154,125 @@ def save_cooldowns():
 def add_claim_to_cooldown(staff_id):
     """Add a claim to staff's cooldown tracker"""
     staff_key = str(staff_id)
-    now = datetime.datetime.now().isoformat()
+    now = datetime.datetime.now()
     
     if staff_key not in staff_cooldowns:
-        staff_cooldowns[staff_key] = {"claims": [], "cooldown_until": None}
+        staff_cooldowns[staff_key] = {
+            "cycle_start": now.isoformat(),
+            "claims_in_cycle": 0,
+            "exhausted_cooldown_until": None
+        }
     
-    # Add new claim
-    staff_cooldowns[staff_key]["claims"].append(now)
+    # Check if we're in exhausted cooldown
+    exhausted_until_str = staff_cooldowns[staff_key].get("exhausted_cooldown_until")
+    if exhausted_until_str:
+        exhausted_until = datetime.datetime.fromisoformat(exhausted_until_str)
+        if now >= exhausted_until:
+            # Exhausted cooldown expired, start fresh cycle
+            staff_cooldowns[staff_key] = {
+                "cycle_start": now.isoformat(),
+                "claims_in_cycle": 1,
+                "exhausted_cooldown_until": None
+            }
+            save_cooldowns()
+            return
     
-    # Keep only recent claims (within cooldown period)
-    cutoff = datetime.datetime.now() - datetime.timedelta(hours=COOLDOWN_HOURS)
-    staff_cooldowns[staff_key]["claims"] = [
-        claim for claim in staff_cooldowns[staff_key]["claims"]
-        if datetime.datetime.fromisoformat(claim) > cutoff
-    ]
+    # Check if normal cycle has expired (20 minutes)
+    cycle_start = datetime.datetime.fromisoformat(staff_cooldowns[staff_key]["cycle_start"])
+    time_since_start = now - cycle_start
     
-    # If reached limit, set cooldown
-    if len(staff_cooldowns[staff_key]["claims"]) >= COOLDOWN_LIMIT:
-        cooldown_until = datetime.datetime.now() + datetime.timedelta(hours=COOLDOWN_HOURS)
-        staff_cooldowns[staff_key]["cooldown_until"] = cooldown_until.isoformat()
+    if time_since_start >= datetime.timedelta(minutes=RESET_MINUTES):
+        # Cycle expired, reset to fresh
+        staff_cooldowns[staff_key] = {
+            "cycle_start": now.isoformat(),
+            "claims_in_cycle": 1,
+            "exhausted_cooldown_until": None
+        }
+    else:
+        # Add to current cycle
+        staff_cooldowns[staff_key]["claims_in_cycle"] += 1
+        
+        # Check if exhausted (hit limit)
+        if staff_cooldowns[staff_key]["claims_in_cycle"] >= COOLDOWN_LIMIT:
+            # Set exhausted cooldown (2 hours from now)
+            exhausted_until = now + datetime.timedelta(hours=COOLDOWN_HOURS)
+            staff_cooldowns[staff_key]["exhausted_cooldown_until"] = exhausted_until.isoformat()
     
     save_cooldowns()
 
 def is_staff_on_cooldown(staff_id):
     """Check if staff is on cooldown"""
     staff_key = str(staff_id)
-    
-    if staff_key not in staff_cooldowns:
-        return False, None
-    
-    cooldown_until_str = staff_cooldowns[staff_key].get("cooldown_until")
-    if not cooldown_until_str:
-        return False, None
-    
-    cooldown_until = datetime.datetime.fromisoformat(cooldown_until_str)
     now = datetime.datetime.now()
     
-    if now < cooldown_until:
-        # Still on cooldown
-        time_left = cooldown_until - now
-        return True, time_left
-    else:
-        # Cooldown expired, reset
-        staff_cooldowns[staff_key]["claims"] = []
-        staff_cooldowns[staff_key]["cooldown_until"] = None
+    if staff_key not in staff_cooldowns:
+        return False, None, 0
+    
+    # Check exhausted cooldown first
+    exhausted_until_str = staff_cooldowns[staff_key].get("exhausted_cooldown_until")
+    if exhausted_until_str:
+        exhausted_until = datetime.datetime.fromisoformat(exhausted_until_str)
+        if now < exhausted_until:
+            # Still in exhausted cooldown
+            time_left = exhausted_until - now
+            return True, time_left, COOLDOWN_LIMIT
+        else:
+            # Exhausted cooldown expired, reset
+            staff_cooldowns[staff_key] = {
+                "cycle_start": now.isoformat(),
+                "claims_in_cycle": 0,
+                "exhausted_cooldown_until": None
+            }
+            save_cooldowns()
+            return False, None, 0
+    
+    # Check normal cycle
+    cycle_start = datetime.datetime.fromisoformat(staff_cooldowns[staff_key]["cycle_start"])
+    time_since_start = now - cycle_start
+    
+    if time_since_start >= datetime.timedelta(minutes=RESET_MINUTES):
+        # Cycle expired, reset
+        staff_cooldowns[staff_key] = {
+            "cycle_start": now.isoformat(),
+            "claims_in_cycle": 0,
+            "exhausted_cooldown_until": None
+        }
         save_cooldowns()
-        return False, None
+        return False, None, 0
+    
+    current_claims = staff_cooldowns[staff_key]["claims_in_cycle"]
+    return False, None, current_claims
 
 def get_claim_count(staff_id):
     """Get current claim count for staff"""
     staff_key = str(staff_id)
+    now = datetime.datetime.now()
+    
     if staff_key not in staff_cooldowns:
         return 0
     
-    # Clean old claims
-    cutoff = datetime.datetime.now() - datetime.timedelta(hours=COOLDOWN_HOURS)
-    staff_cooldowns[staff_key]["claims"] = [
-        claim for claim in staff_cooldowns[staff_key]["claims"]
-        if datetime.datetime.fromisoformat(claim) > cutoff
-    ]
-    save_cooldowns()
+    # Check if in exhausted cooldown
+    exhausted_until_str = staff_cooldowns[staff_key].get("exhausted_cooldown_until")
+    if exhausted_until_str:
+        exhausted_until = datetime.datetime.fromisoformat(exhausted_until_str)
+        if now < exhausted_until:
+            return COOLDOWN_LIMIT  # Show as full
     
-    return len(staff_cooldowns[staff_key]["claims"])
+    # Check if cycle expired
+    cycle_start = datetime.datetime.fromisoformat(staff_cooldowns[staff_key]["cycle_start"])
+    time_since_start = now - cycle_start
+    
+    if time_since_start >= datetime.timedelta(minutes=RESET_MINUTES):
+        # Cycle expired, reset
+        staff_cooldowns[staff_key] = {
+            "cycle_start": now.isoformat(),
+            "claims_in_cycle": 0,
+            "exhausted_cooldown_until": None
+        }
+        save_cooldowns()
+        return 0
+    
+    return staff_cooldowns[staff_key]["claims_in_cycle"]
 
 # ---------------------------
 # LOAD / SAVE SALES
@@ -510,8 +568,12 @@ class TicketControlView(ui.View):
             await interaction.response.send_message("❌ Hanya staff yang bisa claim ticket.", ephemeral=True)
             return False
 
-        # Check if staff has reached salary cap
-        if is_salary_maxed(user.id):
+        # Check if user is admin (bypass all limits)
+        admin_role = guild.get_role(ADMIN_ROLE_ID)
+        is_admin = admin_role in user.roles
+
+        # Check if staff has reached salary cap (skip for admin)
+        if not is_admin and is_salary_maxed(user.id):
             staff_sales = get_sales(user.id)
             current_salary = calculate_salary(staff_sales["total"])
             await interaction.response.send_message(
@@ -522,19 +584,20 @@ class TicketControlView(ui.View):
             )
             return False
 
-        # Check if staff is on cooldown
-        on_cooldown, time_left = is_staff_on_cooldown(user.id)
-        if on_cooldown:
-            hours = int(time_left.total_seconds() // 3600)
-            minutes = int((time_left.total_seconds() % 3600) // 60)
-            await interaction.response.send_message(
-                f"⏰ **Kamu sedang dalam cooldown!**\n\n"
-                f"Kamu sudah claim {COOLDOWN_LIMIT} ticket dalam {COOLDOWN_HOURS} jam terakhir.\n"
-                f"Cooldown berakhir dalam: **{hours} jam {minutes} menit**\n\n"
-                f"Biarkan staff lain juga dapat kesempatan claim ticket! 😊",
-                ephemeral=True
-            )
-            return False
+        # Check if staff is on cooldown (skip for admin)
+        if not is_admin:
+            on_cooldown, time_left, current_count = is_staff_on_cooldown(user.id)
+            if on_cooldown:
+                hours = int(time_left.total_seconds() // 3600)
+                minutes = int((time_left.total_seconds() % 3600) // 60)
+                await interaction.response.send_message(
+                    f"⏰ **Quota habis! Cooldown aktif**\n\n"
+                    f"Kamu sudah claim {COOLDOWN_LIMIT} ticket dan quota habis.\n"
+                    f"Cooldown berakhir dalam: **{hours} jam {minutes} menit**\n\n"
+                    f"💡 **Tip:** Kalau quota belum habis, reset otomatis setiap {RESET_MINUTES} menit!",
+                    ephemeral=True
+                )
+                return False
 
         # Check if already claimed
         existing_claim = get_claim(channel.id)
@@ -551,12 +614,13 @@ class TicketControlView(ui.View):
         # Add claim
         add_claim(channel.id, user.id)
         
-        # Add to cooldown tracker
-        add_claim_to_cooldown(user.id)
+        # Add to cooldown tracker (skip for admin)
+        if not is_admin:
+            add_claim_to_cooldown(user.id)
         
         # Get current claim count
-        claim_count = get_claim_count(user.id)
-        remaining = COOLDOWN_LIMIT - claim_count
+        claim_count = get_claim_count(user.id) if not is_admin else 0
+        remaining = COOLDOWN_LIMIT - claim_count if not is_admin else 999  # Show unlimited for admin
 
         # Find ticket creator
         ticket_creator_id = None
@@ -581,8 +645,10 @@ class TicketControlView(ui.View):
 
         # Success message with quota info
         quota_msg = ""
-        if remaining > 0:
-            quota_msg = f"\n\n📊 Sisa quota: **{remaining}/{COOLDOWN_LIMIT}** ticket (reset dalam {COOLDOWN_HOURS} jam)"
+        if is_admin:
+            quota_msg = "\n\n👑 **Admin Mode:** Unlimited quota - No cooldown!"
+        elif remaining > 0:
+            quota_msg = f"\n\n📊 Sisa quota: **{remaining}/{COOLDOWN_LIMIT}** ticket\n💡 Reset otomatis dalam {RESET_MINUTES} menit jadi 5/5 lagi!"
         else:
             quota_msg = f"\n\n⚠️ Quota habis! Cooldown {COOLDOWN_HOURS} jam dimulai sekarang."
         
