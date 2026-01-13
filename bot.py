@@ -93,6 +93,42 @@ def get_claim(channel_id):
     return ticket_claims.get(channel_id)
 
 # ---------------------------
+# LOAD / SAVE DONE TICKETS (to prevent double-done)
+# ---------------------------
+DONE_TICKETS_FILE = os.path.join(BASE_DIR, "done_tickets.json")
+
+if not os.path.exists(DONE_TICKETS_FILE):
+    with open(DONE_TICKETS_FILE, "w") as f:
+        json.dump([], f, indent=4)
+    done_tickets = []
+else:
+    with open(DONE_TICKETS_FILE, "r") as f:
+        try:
+            done_tickets = json.load(f)
+        except json.JSONDecodeError:
+            done_tickets = []
+
+def save_done_tickets():
+    with open(DONE_TICKETS_FILE, "w") as f:
+        json.dump(done_tickets, f, indent=4)
+
+def mark_ticket_done(channel_id):
+    """Mark a ticket as done"""
+    if channel_id not in done_tickets:
+        done_tickets.append(channel_id)
+        save_done_tickets()
+
+def is_ticket_done(channel_id):
+    """Check if ticket is already marked as done"""
+    return channel_id in done_tickets
+
+def remove_done_ticket(channel_id):
+    """Remove ticket from done list when closed"""
+    if channel_id in done_tickets:
+        done_tickets.remove(channel_id)
+        save_done_tickets()
+
+# ---------------------------
 # LOAD / SAVE SALES
 # ---------------------------
 if not os.path.exists(SALES_FILE):
@@ -127,6 +163,36 @@ def add_sale(staff_id, amount, description="Premium Sale"):
 def get_sales(staff_id):
     staff_key = str(staff_id)
     return sales_data.get(staff_key, {"total": 0, "sales": []})
+
+def reset_sales(staff_id):
+    """Reset sales data for a staff member after salary payment"""
+    staff_key = str(staff_id)
+    if staff_key in sales_data:
+        sales_data[staff_key] = {"total": 0, "sales": []}
+        save_sales()
+        return True
+    return False
+
+def calculate_salary(total_sales):
+    """Calculate salary with cap"""
+    COMMISSION_RATE = 0.10
+    SALARY_CAP = 30000
+    calculated = int(total_sales * COMMISSION_RATE)
+    return min(calculated, SALARY_CAP)
+
+def is_salary_maxed(staff_id):
+    """Check if staff has reached salary cap"""
+    SALARY_CAP = 30000
+    staff_sales = get_sales(staff_id)
+    salary = calculate_salary(staff_sales["total"])
+    return salary >= SALARY_CAP
+
+# Salary cap constant
+SALARY_CAP = 30000
+COMMISSION_RATE = 0.10
+
+# Admin role for salary payment
+ADMIN_ROLE_ID = 1458390940959117356
 
 def add_ticket(user_id, channel_id):
     active_tickets[user_id] = channel_id
@@ -249,6 +315,15 @@ class DoneButtonView(ui.View):
         guild = interaction.guild
         channel = interaction.channel
 
+        # Check if ticket is already marked as done
+        if is_ticket_done(channel.id):
+            await interaction.response.send_message(
+                "❌ Ticket ini sudah di-mark sebagai **Done** sebelumnya!\n"
+                "Sales sudah tercatat untuk staff yang handle ticket ini.",
+                ephemeral=True
+            )
+            return
+
         # Find ticket creator
         ticket_creator_id = None
         for uid, cid in active_tickets.items():
@@ -310,6 +385,9 @@ class DoneButtonView(ui.View):
             # If DM fails, send in channel
             await channel.send(f"🎉 {claimer.mention} mendapat credit sales **IDR {sale_amount:,}**!")
 
+        # Mark ticket as done to prevent double-done
+        mark_ticket_done(channel.id)
+
 class TicketControlView(ui.View):
     def __init__(self, is_premium=False):
         super().__init__(timeout=None)
@@ -342,6 +420,18 @@ class TicketControlView(ui.View):
         # Check if user is staff
         if staff_role not in user.roles and helper_role not in user.roles:
             await interaction.response.send_message("❌ Hanya staff yang bisa claim ticket.", ephemeral=True)
+            return False
+
+        # Check if staff has reached salary cap
+        if is_salary_maxed(user.id):
+            staff_sales = get_sales(user.id)
+            current_salary = calculate_salary(staff_sales["total"])
+            await interaction.response.send_message(
+                f"❌ **Gaji kamu sudah mencapai batas maksimal IDR {current_salary:,}!**\n\n"
+                f"Kamu tidak bisa claim ticket baru sampai gaji dibayar oleh admin.\n"
+                f"Hubungi admin untuk pembayaran gaji dengan command `/gajisudahbayar`.",
+                ephemeral=True
+            )
             return False
 
         # Check if already claimed
@@ -418,6 +508,7 @@ class TicketControlView(ui.View):
                 del active_tickets[uid]
         save_tickets()
         remove_claim(channel.id)
+        remove_done_ticket(channel.id)  # Clean up done tickets list
         await channel.delete()
         return True
 
@@ -1234,7 +1325,7 @@ async def sales(
         medals = ["🥇", "🥈", "🥉"]
         for idx, entry in enumerate(leaderboard[:10], 1):
             medal = medals[idx-1] if idx <= 3 else f"**{idx}.**"
-            commission = int(entry["total"] * 0.10)
+            commission = calculate_salary(entry["total"])
             leaderboard_text += (
                 f"{medal} {entry['member'].mention}\n"
                 f"   💰 Sales: IDR {entry['total']:,} | "
@@ -1297,9 +1388,9 @@ async def mygaji(interaction: dc.Interaction, staff: dc.Member = None):
     total_sales = staff_sales["total"]
     sales_list = staff_sales["sales"]
     
-    # Calculate commission (example: 10% of total sales)
-    COMMISSION_RATE = 0.10
-    gaji = int(total_sales * COMMISSION_RATE)
+    # Calculate commission with cap
+    gaji = calculate_salary(total_sales)
+    is_maxed = gaji >= SALARY_CAP
     
     if total_sales == 0:
         return await interaction.response.send_message(
@@ -1317,9 +1408,15 @@ async def mygaji(interaction: dc.Interaction, staff: dc.Member = None):
         value=f"IDR {total_sales:,}",
         inline=True
     )
+    
+    # Show salary with cap indicator
+    salary_text = f"IDR {gaji:,}"
+    if is_maxed:
+        salary_text += f" 🔴 **MAX**"
+    
     embed.add_field(
-        name="💵 Gaji (Komisi 10%)",
-        value=f"IDR {gaji:,}",
+        name=f"💵 Gaji (Komisi 10%, Max {SALARY_CAP:,})",
+        value=salary_text,
         inline=True
     )
     embed.add_field(
@@ -1327,6 +1424,14 @@ async def mygaji(interaction: dc.Interaction, staff: dc.Member = None):
         value=f"{len(sales_list)} transaksi",
         inline=True
     )
+    
+    # Warning if maxed
+    if is_maxed:
+        embed.add_field(
+            name="⚠️ Peringatan",
+            value=f"Gaji sudah mencapai batas maksimal! Tidak bisa claim ticket baru sampai gaji dibayar.",
+            inline=False
+        )
     
     # Show last 5 transactions
     if len(sales_list) > 0:
@@ -1346,6 +1451,92 @@ async def mygaji(interaction: dc.Interaction, staff: dc.Member = None):
     embed.set_footer(text="VoraHub Sales Tracker • Data diperbarui real-time")
     
     await interaction.response.send_message(embed=embed)
+
+@client.tree.command(name="gajisudahbayar", description="[ADMIN] Konfirmasi pembayaran gaji staff dan reset sales")
+@app_commands.describe(
+    staff="Staff yang sudah dibayar gajinya"
+)
+async def gajisudahbayar(interaction: dc.Interaction, staff: dc.Member):
+    # Check if user is admin
+    admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
+    
+    if admin_role not in interaction.user.roles:
+        return await interaction.response.send_message(
+            "❌ Hanya admin yang bisa menggunakan command ini.",
+            ephemeral=True
+        )
+    
+    # Get staff sales data before reset
+    staff_sales = get_sales(staff.id)
+    total_sales = staff_sales["total"]
+    gaji = calculate_salary(total_sales)
+    transaction_count = len(staff_sales["sales"])
+    
+    if total_sales == 0:
+        return await interaction.response.send_message(
+            f"❌ {staff.mention} belum memiliki penjualan yang tercatat.",
+            ephemeral=True
+        )
+    
+    # Reset sales
+    reset_sales(staff.id)
+    
+    # Send confirmation embed
+    embed = dc.Embed(
+        title="💰 Gaji Telah Dibayar",
+        description=f"Pembayaran gaji untuk {staff.mention} berhasil dikonfirmasi!",
+        color=0x00ff00  # Green
+    )
+    
+    embed.add_field(
+        name="💵 Gaji yang Dibayar",
+        value=f"IDR {gaji:,}",
+        inline=True
+    )
+    embed.add_field(
+        name="📈 Total Sales (Sebelum Reset)",
+        value=f"IDR {total_sales:,}",
+        inline=True
+    )
+    embed.add_field(
+        name="📦 Transaksi",
+        value=f"{transaction_count} transaksi",
+        inline=True
+    )
+    embed.add_field(
+        name="✅ Status",
+        value="Sales telah di-reset ke 0. Staff bisa claim ticket lagi!",
+        inline=False
+    )
+    
+    embed.set_footer(text=f"Dibayar oleh {interaction.user.name}")
+    embed.timestamp = datetime.datetime.now()
+    
+    await interaction.response.send_message(embed=embed)
+    
+    # Notify staff via DM
+    try:
+        dm_embed = dc.Embed(
+            title="💰 Gaji Kamu Telah Dibayar!",
+            description=f"Admin telah mengkonfirmasi pembayaran gaji kamu.",
+            color=0x00ff00
+        )
+        dm_embed.add_field(name="💵 Jumlah", value=f"IDR {gaji:,}", inline=True)
+        dm_embed.add_field(name="📈 Total Sales", value=f"IDR {total_sales:,}", inline=True)
+        dm_embed.add_field(
+            name="✅ Status Baru",
+            value="Sales kamu sudah di-reset. Kamu bisa claim ticket lagi!",
+            inline=False
+        )
+        dm_embed.set_footer(text="VoraHub Salary System")
+        
+        await staff.send(embed=dm_embed)
+    except:
+        # If DM fails, mention in channel
+        await interaction.channel.send(
+            f"📢 {staff.mention} Gaji kamu sebesar **IDR {gaji:,}** telah dibayar! "
+            f"Sales sudah di-reset, kamu bisa claim ticket lagi."
+        )
 
 from dotenv import load_dotenv
 import os
