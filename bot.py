@@ -235,14 +235,87 @@ class TicketX8Button(ui.View):
     async def create_ticket_button(self, interaction: Interaction, button: ui.Button):
         await create_ticket(interaction, "X8 Ticket")
 
+# ---------------------------
+# DONE BUTTON VIEW (appears after whitelist)
+# ---------------------------
+class DoneButtonView(ui.View):
+    def __init__(self, is_premium=False):
+        super().__init__(timeout=None)
+        self.is_premium = is_premium
+
+    @ui.button(label="Done", style=dc.ButtonStyle.success, emoji="✅", custom_id="done_ticket_confirm")
+    async def done_button(self, interaction: Interaction, button: ui.Button):
+        user = interaction.user
+        guild = interaction.guild
+        channel = interaction.channel
+
+        # Find ticket creator
+        ticket_creator_id = None
+        for uid, cid in active_tickets.items():
+            if cid == channel.id:
+                ticket_creator_id = uid
+                break
+
+        # Check if user is the ticket creator
+        if user.id != ticket_creator_id:
+            await interaction.response.send_message("❌ Hanya pembuat ticket yang bisa menekan tombol Done.", ephemeral=True)
+            return
+
+        # Check if ticket is claimed
+        claimer_id = get_claim(channel.id)
+        if not claimer_id:
+            await interaction.response.send_message("❌ Ticket ini belum di-claim oleh staff. Tidak ada yang bisa dikreditkan.", ephemeral=True)
+            return
+
+        # Get claimer member
+        claimer = guild.get_member(claimer_id)
+        if not claimer:
+            await interaction.response.send_message("❌ Staff yang claim ticket tidak ditemukan.", ephemeral=True)
+            return
+
+        # Determine sale amount based on ticket type
+        sale_amount = 20000 if self.is_premium else 0  # Default premium price
+
+        if sale_amount == 0:
+            await interaction.response.send_message("❌ Ticket ini bukan ticket premium, tidak ada sales yang dicatat.", ephemeral=True)
+            return
+
+        # Add sale to the claimer
+        add_sale(claimer_id, sale_amount, f"Premium Sale - Ticket {channel.name}")
+
+        # Get updated stats
+        staff_sales = get_sales(claimer_id)
+        total = staff_sales["total"]
+
+        # Send confirmation
+        embed = dc.Embed(
+            title="✅ Ticket Selesai & Sales Tercatat",
+            description=f"Terima kasih {user.mention}! Ticket telah ditandai selesai.",
+            color=VORA_BLUE
+        )
+        embed.add_field(name="Staff yang Handle", value=claimer.mention, inline=True)
+        embed.add_field(name="Credit Sales", value=f"IDR {sale_amount:,}", inline=True)
+        embed.add_field(name="Total Sales Staff", value=f"IDR {total:,}", inline=True)
+        embed.set_footer(text="VoraHub Sales Tracker")
+
+        await interaction.response.send_message(embed=embed)
+
+        # Notify the claimer
+        try:
+            await claimer.send(
+                f"🎉 Selamat! Kamu mendapat credit sales **IDR {sale_amount:,}** dari ticket **{channel.name}**!\n"
+                f"Total sales kamu sekarang: **IDR {total:,}**"
+            )
+        except:
+            # If DM fails, send in channel
+            await channel.send(f"🎉 {claimer.mention} mendapat credit sales **IDR {sale_amount:,}**!")
+
 class TicketControlView(ui.View):
     def __init__(self, is_premium=False):
         super().__init__(timeout=None)
         self.is_premium = is_premium
         # Claim ticket button
         self.add_item(ui.Button(label="Claim Ticket", style=dc.ButtonStyle.green, emoji="✋", custom_id="claim_ticket"))
-        # Done button (for ticket creator to confirm completion)
-        self.add_item(ui.Button(label="Done", style=dc.ButtonStyle.success, emoji="✅", custom_id="done_ticket"))
         # Close ticket button
         self.add_item(ui.Button(label="Close Ticket", style=dc.ButtonStyle.red, emoji="🔒", custom_id="close_ticket"))
         # Payment button if premium
@@ -253,8 +326,6 @@ class TicketControlView(ui.View):
         cid = interaction.data.get("custom_id")
         if cid == "claim_ticket":
             return await self.claim_ticket_callback(interaction)
-        elif cid == "done_ticket":
-            return await self.done_ticket_callback(interaction)
         elif cid == "close_ticket":
             return await self.close_ticket_callback(interaction)
         elif cid == "pay_now":
@@ -312,74 +383,6 @@ class TicketControlView(ui.View):
         await interaction.response.send_message(f"✅ {user.mention} telah **claim** ticket ini! Ticket sekarang hanya terlihat oleh kamu dan pembuat ticket.", ephemeral=False)
         return True
 
-    async def done_ticket_callback(self, interaction: Interaction):
-        user = interaction.user
-        guild = interaction.guild
-        channel = interaction.channel
-
-        # Find ticket creator
-        ticket_creator_id = None
-        for uid, cid in active_tickets.items():
-            if cid == channel.id:
-                ticket_creator_id = uid
-                break
-
-        # Check if user is the ticket creator
-        if user.id != ticket_creator_id:
-            await interaction.response.send_message("❌ Hanya pembuat ticket yang bisa menekan tombol Done.", ephemeral=True)
-            return False
-
-        # Check if ticket is claimed
-        claimer_id = get_claim(channel.id)
-        if not claimer_id:
-            await interaction.response.send_message("❌ Ticket ini belum di-claim oleh staff. Tidak ada yang bisa dikreditkan.", ephemeral=True)
-            return False
-
-        # Get claimer member
-        claimer = guild.get_member(claimer_id)
-        if not claimer:
-            await interaction.response.send_message("❌ Staff yang claim ticket tidak ditemukan.", ephemeral=True)
-            return False
-
-        # Determine sale amount based on ticket type
-        is_premium = self.is_premium
-        sale_amount = 20000 if is_premium else 0  # Default premium price
-
-        if sale_amount == 0:
-            await interaction.response.send_message("❌ Ticket ini bukan ticket premium, tidak ada sales yang dicatat.", ephemeral=True)
-            return False
-
-        # Add sale to the claimer
-        add_sale(claimer_id, sale_amount, f"Premium Sale - Ticket {channel.name}")
-
-        # Get updated stats
-        staff_sales = get_sales(claimer_id)
-        total = staff_sales["total"]
-
-        # Send confirmation
-        embed = dc.Embed(
-            title="✅ Ticket Selesai & Sales Tercatat",
-            description=f"Terima kasih {user.mention}! Ticket telah ditandai selesai.",
-            color=VORA_BLUE
-        )
-        embed.add_field(name="Staff yang Handle", value=claimer.mention, inline=True)
-        embed.add_field(name="Credit Sales", value=f"IDR {sale_amount:,}", inline=True)
-        embed.add_field(name="Total Sales Staff", value=f"IDR {total:,}", inline=True)
-        embed.set_footer(text="VoraHub Sales Tracker")
-
-        await interaction.response.send_message(embed=embed)
-
-        # Notify the claimer
-        try:
-            await claimer.send(
-                f"🎉 Selamat! Kamu mendapat credit sales **IDR {sale_amount:,}** dari ticket **{channel.name}**!\n"
-                f"Total sales kamu sekarang: **IDR {total:,}**"
-            )
-        except:
-            # If DM fails, send in channel
-            await channel.send(f"🎉 {claimer.mention} mendapat credit sales **IDR {sale_amount:,}**!")
-
-        return True
 
     async def close_ticket_callback(self, interaction: Interaction):
         user = interaction.user
@@ -675,6 +678,41 @@ class Client(commands.Bot):
         }
 
         print(f"Message from {message.author} in #{message.channel.name}: {message.content}")
+
+        # Check if message contains whitelist confirmation in a ticket channel
+        if "You have been whitelisted! You can access the script via this message" in message.content:
+            # Check if this is a ticket channel
+            channel_id = message.channel.id
+            if channel_id in active_tickets.values():
+                # Find if this is a premium ticket
+                is_premium_ticket = False
+                
+                # Check if ticket is claimed (only send Done button if claimed)
+                claimer_id = get_claim(channel_id)
+                if claimer_id:
+                    # Determine if premium by checking channel category or name
+                    # Assuming premium tickets are in TICKET_CATEGORY_ID
+                    if message.channel.category_id == TICKET_CATEGORY_ID:
+                        is_premium_ticket = True
+                    
+                    if is_premium_ticket:
+                        # Send Done button panel
+                        embed = dc.Embed(
+                            title="✅ Whitelist Berhasil!",
+                            description=(
+                                "Kamu sudah berhasil di-whitelist! 🎉\n\n"
+                                "Jika kamu **puas dengan pelayanan** staff, silakan klik tombol **Done** di bawah.\n"
+                                "Ini akan memberikan credit sales kepada staff yang membantu kamu."
+                            ),
+                            color=VORA_BLUE
+                        )
+                        embed.set_footer(text="VoraHub Premium • Terima kasih!")
+                        
+                        await message.channel.send(
+                            embed=embed,
+                            view=DoneButtonView(is_premium=True)
+                        )
+                        print(f"[DONE PANEL] Sent Done button to {message.channel.name}")
 
         if message.content.startswith('!hello'):
             return await message.channel.send(f'Hello {message.author}!!!')
