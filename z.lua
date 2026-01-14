@@ -4345,44 +4345,41 @@ function PlayV3AnimationOptimized(animType)
     end)
 end
 
--- // V3 ULTRA SPEED LOOP (V2 Style)
+-- // V3 ULTRA SPEED LOOP (V2 Style - Optimized)
 local function startV3UltraLoop()
+    local _Charge, _Request, _Complete, _Cancel = V3_Charge, V3_Request, V3_Complete, V3_Cancel
+    local _spamCount = V3Config.spamComplete
+    
     while getgenv().fishingV3Active and V3Config.enabled do
-        -- Phase 1: Cancel & Idle
+        -- Cancel & Idle
         PlayV3AnimationOptimized("idle")
-        pcall(function() V3_Cancel:InvokeServer() end)
+        pcall(_Cancel.InvokeServer, _Cancel)
         task.wait(0.002)
         
-        -- Phase 2: Throw & Charge (Parallel)
+        -- Throw animation
         PlayV3AnimationOptimized("throw")
         
-        -- Execute charge and request in parallel
-        task.spawn(function() 
-            pcall(function() V3_Charge:InvokeServer() end) 
-        end)
+        -- Parallel charge & request
+        task.spawn(function() pcall(_Charge.InvokeServer, _Charge) end)
         task.wait(0.001)
-        task.spawn(function() 
-            pcall(function() V3_Request:InvokeServer(unpack(args)) end) 
-        end)
+        task.spawn(function() pcall(_Request.InvokeServer, _Request, unpack(args)) end)
         
-        -- Phase 3: Reel
+        -- Reel
         PlayV3AnimationOptimized("reel")
         task.wait(V3Config.chargeDelay * 0.1)
         
-        -- Phase 4: Ultra spam complete
-        for i = 1, V3Config.spamComplete do
-            task.spawn(function()
-                pcall(function() V3_Complete:FireServer() end)
-            end)
-            task.wait(0.0003)
+        -- Spam complete
+        for i = 1, _spamCount do
+            task.spawn(function() pcall(_Complete.FireServer, _Complete) end)
+            if i < _spamCount then task.wait(0.0003) end
         end
         
-        -- Phase 5: Finish
-        PlayV3AnimationOptimized("finish")
+        -- Finish
         task.wait(V3Config.resetDelay * 0.1)
+        PlayV3AnimationOptimized("finish")
         
         -- Final cancel
-        pcall(function() V3_Cancel:InvokeServer() end)
+        pcall(_Cancel.InvokeServer, _Cancel)
         task.wait(0.002)
     end
 end
