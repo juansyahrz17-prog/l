@@ -4314,29 +4314,23 @@ ExclusiveTab:CreateInput({
 
 ExclusiveTab:CreateSection({ Name = "Blatant V3" })
 
-
+-- // V3 CONFIG (V2 Style - Ultra Fast Loop)
 V3Config = {
     enabled = false,
-    cancelDelay = 0.4,
-    completeDelay = 0.05,
-    maxRetry = 3,
-    retryDelay = 0.02,
-    spamComplete = 5
+    chargeDelay = 0.3,
+    resetDelay = 0.02,
+    spamComplete = 15
 }
 
-local v3MainThread = nil
-local v3EquipThread = nil
-local v3ExclaimDetected = false
-local v3Bait = 0
+getgenv().fishingV3Active = false
 
--- // V3 CACHED REMOTES (from V1)
-local v3_charge = ChargeRod
-local v3_requestminigame = RequestGame
-local v3_fishingcomplete = CompleteGame
-local v3_cancelinput = CancelInput
-local v3_equiprod = equiprod
+-- // V3 CACHED REMOTES
+local V3_Charge = ChargeRod
+local V3_Request = RequestGame
+local V3_Complete = CompleteGame
+local V3_Cancel = CancelInput
 
--- // V3 ANIMATION SYSTEM (from V2 optimized)
+-- // V3 ANIMATION SYSTEM
 local v3AnimCache = {}
 local V3_ANIM_COOLDOWN = 0.05
 
@@ -4351,209 +4345,104 @@ function PlayV3AnimationOptimized(animType)
     end)
 end
 
--- // V3 EXCLAIM DETECTION (from V1 - Fixed)
-function setupV3ExclaimDetection()
-    -- Setup exclaim detection via ReplicateTextEffect
-    ReplicateTextEffect.OnClientEvent:Connect(function(data)
-        local char = LocalPlayer.Character
-        if not char or not data.TextData or not data.TextData.AttachTo then return end
-
-        if data.TextData.AttachTo:IsDescendantOf(char)
-            and data.TextData.Text == "!" 
-            and V3Config.enabled then
-            v3ExclaimDetected = true
-        end
-    end)
-    
-    -- Setup bait tracking
-    if BaitSpawned then
-        BaitSpawned.OnClientEvent:Connect(function(bobber, position, owner)
-            if owner and owner ~= LocalPlayer then return end
-            if V3Config.enabled then
-                v3Bait = 1
-            end
-        end)
-    end
-
-    if BaitDestroyed then
-        BaitDestroyed.OnClientEvent:Connect(function(bobber)
-            if V3Config.enabled then
-                v3Bait = 0
-            end
-        end)
-    end
-end
-
--- // V3 START CAST (Hybrid V1 structure + V2 speed)
-function V3StartCast()
-    task.spawn(function()
-        v3ExclaimDetected = false
-        v3Bait = 0
+-- // V3 ULTRA SPEED LOOP (V2 Style)
+local function startV3UltraLoop()
+    while getgenv().fishingV3Active and V3Config.enabled do
+        -- Phase 1: Cancel & Idle
+        PlayV3AnimationOptimized("idle")
+        pcall(function() V3_Cancel:InvokeServer() end)
+        task.wait(0.002)
         
-        task.spawn(function()
-            PlayV3AnimationOptimized("idle")
-            
-            local ok = pcall(function() 
-                v3_cancelinput:InvokeServer() 
-            end)
-            
-            if not ok then
-                local retries = 0
-                repeat 
-                    task.wait(V3Config.retryDelay)
-                    ok = pcall(function() v3_cancelinput:InvokeServer() end)
-                    retries += 1
-                until ok or retries >= V3Config.maxRetry
-                
-                if not ok then return end
-            end
-            
-            task.wait(0.01)
-
-            PlayV3AnimationOptimized("throw")
-
-            -- Parallel charge execution (V2 style)
-            task.spawn(function()
-                pcall(function() 
-                    local charged = v3_charge:InvokeServer(math.huge)
-                    local retries = 0
-                    
-                    if not charged then
-                        repeat 
-                            task.wait(V3Config.retryDelay)
-                            charged = v3_charge:InvokeServer(math.huge)
-                            retries += 1
-                        until charged or retries >= V3Config.maxRetry
-                    end
-                end)
-            end)
-            
-            task.wait(0.01)
-            
-            -- Parallel request execution (V2 style)
-            task.spawn(function()
-                pcall(function() 
-                    v3_requestminigame:InvokeServer(1, 0.05, 1731873.1873)
-                end)
-            end)
-
-            PlayV3AnimationOptimized("reel")
-            
+        -- Phase 2: Throw & Charge (Parallel)
+        PlayV3AnimationOptimized("throw")
+        
+        -- Execute charge and request in parallel
+        task.spawn(function() 
+            pcall(function() V3_Charge:InvokeServer() end) 
         end)
-    end)
-
-    -- Wait for exclaim detection (V1 style)
-    task.spawn(function()
-        v3ExclaimDetected = false
-
-        local timeout = 0.45
-        local timer = 0
-
-        while V3Config.enabled and timer < timeout do
-            if v3ExclaimDetected and v3Bait == 0 then
-                break
-            end
-            task.wait(0.01)
-            timer += 0.01
-        end
-
-        if not V3Config.enabled then return end
-        if not (v3ExclaimDetected and v3Bait == 0) then return end
-
-        task.wait(V3Config.completeDelay)
-
-        if V3Config.enabled then
-            -- Ultra spam complete (V2 style) - MAXIMUM SPEED
-            for i = 1, V3Config.spamComplete do
-                task.spawn(function()
-                    pcall(function() v3_fishingcomplete:FireServer() end)
-                end)
-                task.wait(0.0003)
-            end
-            
-            task.wait(0.01)
-            PlayV3AnimationOptimized("finish")
-        end
-    end)
-end
-
--- // V3 MAIN LOOP (V1 structure)
-function V3MainLoop()
-    v3EquipThread = task.spawn(function()
-        while V3Config.enabled do
-            pcall(v3_equiprod.FireServer, v3_equiprod, 1)
-            task.wait(2)
-        end
-    end)
-
-    while V3Config.enabled do
-        V3StartCast()
-        task.wait(V3Config.cancelDelay)
-        if not V3Config.enabled then break end
-        task.wait(0.05)
-    end
-end
-
--- // V3 TOGGLE (V1 style)
-function V3Toggle(state)
-    V3Config.enabled = state
-
-    if state then
-        -- Stop V1 and V2 if running
-        if Config.blantant then
-            Config.blantant = false
-            if mainThread then task.cancel(mainThread) end
-            if equipThread then task.cancel(equipThread) end
-        end
-        if getgenv().fishingStart then
-            getgenv().fishingStart = false
-            insaneSpeed.enabled = false
+        task.wait(0.001)
+        task.spawn(function() 
+            pcall(function() V3_Request:InvokeServer(unpack(args)) end) 
+        end)
+        
+        -- Phase 3: Reel
+        PlayV3AnimationOptimized("reel")
+        task.wait(V3Config.chargeDelay * 0.1)
+        
+        -- Phase 4: Ultra spam complete
+        for i = 1, V3Config.spamComplete do
+            task.spawn(function()
+                pcall(function() V3_Complete:FireServer() end)
+            end)
+            task.wait(0.0003)
         end
         
-        if v3MainThread then task.cancel(v3MainThread) end
-        if v3EquipThread then task.cancel(v3EquipThread) end
-        v3MainThread = task.spawn(V3MainLoop)
-    else
-        if v3MainThread then task.cancel(v3MainThread) end
-        if v3EquipThread then task.cancel(v3EquipThread) end
-        v3MainThread = nil
-        v3EquipThread = nil
-        v3Bait = 0
-        pcall(v3_cancelinput.InvokeServer, v3_cancelinput)
+        -- Phase 5: Finish
+        PlayV3AnimationOptimized("finish")
+        task.wait(V3Config.resetDelay * 0.1)
+        
+        -- Final cancel
+        pcall(function() V3_Cancel:InvokeServer() end)
+        task.wait(0.002)
     end
 end
-
--- Setup exclaim detection
-setupV3ExclaimDetection()
 
 ExclusiveTab:CreateToggle({
     Name = "Blatant V3",
-    Value = V3Config.enabled,
-    Callback = V3Toggle
-})
+    Value = false,
+    Callback = function(enabled)
+        V3Config.enabled = enabled
+        getgenv().fishingV3Active = enabled
+        
+        if enabled then
+            -- Stop V1 and V2 if running
+            if Config.blantant then
+                Config.blantant = false
+                if mainThread then task.cancel(mainThread) end
+                if equipThread then task.cancel(equipThread) end
+            end
+            if getgenv().fishingStart then
+                getgenv().fishingStart = false
+                insaneSpeed.enabled = false
+            end
+            
+            task.spawn(function()
+                startV3UltraLoop()
+            end)
+            
+        else
+            getgenv().fishingV3Active = false
 
-ExclusiveTab:CreateInput({
-    Name = "V3 Delay Bait",
-    SideLabel = "Delay Bait",
-    Placeholder = "Enter delay...",
-    Default = "0.4",
-    Callback = function(v)
-        local n = tonumber(v)
-        if n and n > 0 then
-            V3Config.cancelDelay = n
         end
     end
 })
 
 ExclusiveTab:CreateInput({
-    Name = "V3 Delay Reel",
-    SideLabel = "Delay Reel",
-    Placeholder = "Enter delay...",
-    Default = "0.05",
+    Name = "V3 Charge Delay",
+    SideLabel = "Charge",
+    Placeholder = "Enter delay (0 - 5)",
+    Default = "0.3",
     Callback = function(v)
         local n = tonumber(v)
-        if n and n > 0 then
-            V3Config.completeDelay = n
+        if n and n >= 0 and n <= 5 then
+            V3Config.chargeDelay = n
+        else
+            V3Config.chargeDelay = 0.3
+        end
+    end
+})
+
+ExclusiveTab:CreateInput({
+    Name = "V3 Reset Delay",
+    SideLabel = "Reset",
+    Placeholder = "Enter delay (0 - 1)",
+    Default = "0.02",
+    Callback = function(v)
+        local n = tonumber(v)
+        if n and n >= 0 and n <= 1 then
+            V3Config.resetDelay = n
+        else
+            V3Config.resetDelay = 0.02
         end
     end
 })
