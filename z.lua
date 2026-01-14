@@ -4321,7 +4321,7 @@ local V3Config = {
     completeDelay = 0.15,
     maxRetry = 3,
     retryDelay = 0.05,
-    spamComplete = 10
+    spamComplete = 5
 }
 
 local v3MainThread = nil
@@ -4340,7 +4340,7 @@ local v3_equiprod = equiprod
 local v3AnimCache = {}
 local V3_ANIM_COOLDOWN = 0.08
 
-local function PlayV3AnimationOptimized(animType)
+function PlayV3AnimationOptimized(animType)
     local now = tick()
     if v3AnimCache[animType] and (now - v3AnimCache[animType]) < V3_ANIM_COOLDOWN then
         return
@@ -4352,7 +4352,7 @@ local function PlayV3AnimationOptimized(animType)
 end
 
 -- // V3 EXCLAIM DETECTION (from V1)
-local function setupV3ExclaimDetection()
+function setupV3ExclaimDetection()
     local player = game.Players.LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
     
@@ -4366,7 +4366,7 @@ local function setupV3ExclaimDetection()
 end
 
 -- // V3 START CAST (Hybrid V1 structure + V2 speed)
-local function V3StartCast()
+function V3StartCast()
     task.spawn(function()
         v3ExclaimDetected = false
         v3Bait = 0
@@ -4459,7 +4459,7 @@ local function V3StartCast()
 end
 
 -- // V3 MAIN LOOP (V1 structure)
-local function V3MainLoop()
+function V3MainLoop()
     v3EquipThread = task.spawn(function()
         while V3Config.enabled do
             pcall(v3_equiprod.FireServer, v3_equiprod, 1)
@@ -4476,7 +4476,7 @@ local function V3MainLoop()
 end
 
 -- // V3 TOGGLE (V1 style)
-local function V3Toggle(state)
+function V3Toggle(state)
     V3Config.enabled = state
 
     if state then
