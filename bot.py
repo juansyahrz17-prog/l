@@ -35,6 +35,7 @@ TICKET_CATEGORY_ID_X8 = 1443965063533953104
 
 UNVERIFIED_ROLE_ID = 1434816903439843359
 MEMBER_ROLE_ID = 1434816903439843359
+WL_ROLE_ID = 1452500424551567360  # Whitelist role
 
 VORA_BLUE = 0x3498db
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -538,8 +539,9 @@ class TicketControlView(ui.View):
     def __init__(self, is_premium=False):
         super().__init__(timeout=None)
         self.is_premium = is_premium
-        # Claim ticket button
-        self.add_item(ui.Button(label="Claim Ticket", style=dc.ButtonStyle.green, emoji="✋", custom_id="claim_ticket"))
+        # Claim ticket button - only for premium tickets
+        if self.is_premium:
+            self.add_item(ui.Button(label="Claim Ticket", style=dc.ButtonStyle.green, emoji="✋", custom_id="claim_ticket"))
         # Close ticket button
         self.add_item(ui.Button(label="Close Ticket", style=dc.ButtonStyle.red, emoji="🔒", custom_id="close_ticket"))
         # Payment button if premium
@@ -913,7 +915,7 @@ class Client(commands.Bot):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally synced {len(synced)} slash commands.")
+            print(f"✅ Globally HEH synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
@@ -989,6 +991,33 @@ class Client(commands.Bot):
                             view=DoneButtonView(is_premium=True)
                         )
                         print(f"[DONE PANEL] Sent Done button to {message.channel.name}")
+
+        # Check if WL role is mentioned in a ticket channel
+        if message.role_mentions:
+            wl_role = message.guild.get_role(WL_ROLE_ID)
+            if wl_role and wl_role in message.role_mentions:
+                # Check if this is a ticket channel
+                channel_id = message.channel.id
+                if channel_id in active_tickets.values():
+                    # Grant view permissions to WL role
+                    try:
+                        await message.channel.set_permissions(
+                            wl_role,
+                            view_channel=True,
+                            send_messages=True
+                        )
+                        
+                        # Send confirmation message
+                        embed = dc.Embed(
+                            title="🔓 Ticket Dibuka untuk WL",
+                            description=f"Ticket ini sekarang terlihat oleh role {wl_role.mention}",
+                            color=VORA_BLUE
+                        )
+                        await message.channel.send(embed=embed)
+                        print(f"[WL ACCESS] Granted WL role access to ticket {message.channel.name}")
+                    except Exception as e:
+                        print(f"[WL ACCESS ERROR] Failed to grant permissions: {e}")
+
 
         if message.content.startswith('!hello'):
             return await message.channel.send(f'Hello {message.author}!!!')
