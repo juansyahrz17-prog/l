@@ -1141,11 +1141,11 @@ class PaymentActionView(ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @ui.button(label="📤 Send Proof", style=dc.ButtonStyle.green)
+    @ui.button(label="📤 Send Proof", style=dc.ButtonStyle.green, custom_id="payment_send_proof")
     async def send_proof(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_message("Silakan **upload bukti transfer** di chat ticket ini.", ephemeral=True)
 
-    @ui.button(label="💳 Open QRIS", style=dc.ButtonStyle.blurple)
+    @ui.button(label="💳 Open QRIS", style=dc.ButtonStyle.blurple, custom_id="payment_open_qris")
     async def open_qris(self, interaction: Interaction, button: ui.Button):
         await interaction.response.send_message(
             "🧾 **QRIS Payment:**\nhttps://cdn.discordapp.com/attachments/1436968124699119636/1443793945581846619/VoraQris.png",
@@ -1530,7 +1530,7 @@ class Client(commands.Bot):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally x synced {len(synced)} slash commands.")
+            print(f"✅ Globally c synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
