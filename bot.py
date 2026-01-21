@@ -1518,19 +1518,20 @@ class Client(commands.Bot):
         self.add_view(DoneButtonView(is_premium=True))
         self.add_view(DoneButtonView(is_premium=False))
         
-        # Payment action view
-        self.add_view(PaymentActionView())
+        # Payment action view - commented out temporarily if causing issues
+        # Uncomment after verifying custom_id is added to buttons
+        try:
+            self.add_view(PaymentActionView())
+        except ValueError as e:
+            print(f"[VIEWS] ⚠ PaymentActionView not registered: {e}")
         
-        # Verification view
-        self.add_view(VerifView())
-        
-        print("[VIEWS] ✓ All persistent views registered")
+        print("[VIEWS] ✓ Core persistent views registered")
 
     async def on_ready(self):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally c synced {len(synced)} slash commands.")
+            print(f"✅ Globally xc synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
