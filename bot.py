@@ -1558,7 +1558,7 @@ class Client(commands.Bot):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally vorahub synced {len(synced)} slash commands.")
+            print(f"✅ Globally vorahubBOT synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
@@ -1673,8 +1673,7 @@ class Client(commands.Bot):
                     pass
                 
                 if has_done_panel:
-                    # Panel already exists, just mark as done to prevent future checks
-                    mark_ticket_done(channel_id)
+                    # Panel already exists, skip to prevent duplicates
                     continue
                 
                 # Send Done panel to this channel
@@ -1694,8 +1693,6 @@ class Client(commands.Bot):
                     view=DoneButtonView(is_premium=True)
                 )
                 
-                # Mark as done immediately to prevent duplicate sends
-                mark_ticket_done(channel_id)
                 print(f"[AUTO-CHECK] ✓ Sent Done panel to {channel.name} for {member.name}")
                 
             except Exception as e:
