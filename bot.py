@@ -1497,7 +1497,7 @@ class Client(commands.Bot):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally vorahubGGG synced {len(synced)} slash commands.")
+            print(f"✅ Globally Andrahub synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
