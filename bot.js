@@ -355,7 +355,7 @@ client.once('ready', async () => {
     ];
 
     await client.application.commands.set(commands);
-    console.log("Slash commands registered!");
+    console.log("Slash commands s!");
 });
 
 // =============== SATU INTERACTION HANDLER SAJA (lebih cepat) ===============
