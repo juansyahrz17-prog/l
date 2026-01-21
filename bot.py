@@ -1179,18 +1179,30 @@ async def create_ticket(interaction: Interaction, category_name: str):
     if is_x8:
         if user.id in x8_tickets:
             ch = guild.get_channel(x8_tickets[user.id])
-            ch_mention = ch.mention if ch else "tidak ditemukan"
-            return await interaction.response.send_message(
-                f"⚠ Kamu masih punya ticket X8 aktif di {ch_mention}.", ephemeral=True
-            )
+            if ch:
+                return await interaction.response.send_message(
+                    f"⚠ Kamu masih punya ticket X8 aktif di {ch.mention}.", ephemeral=True
+                )
+            else:
+                # Ghost ticket cleanup
+                print(f"[CLEANUP] Removing ghost X8 ticket for user {user.id}")
+                remove_x8_ticket(user.id)
+                remove_claim(x8_tickets.get(user.id))
+                remove_done_ticket(x8_tickets.get(user.id))
         current_ticket_num = increment_x8_ticket_counter()
     else:
         if user.id in active_tickets:
             ch = guild.get_channel(active_tickets[user.id])
-            ch_mention = ch.mention if ch else "tidak ditemukan"
-            return await interaction.response.send_message(
-                f"⚠ Kamu masih punya ticket aktif di {ch_mention}.", ephemeral=True
-            )
+            if ch:
+                return await interaction.response.send_message(
+                    f"⚠ Kamu masih punya ticket aktif di {ch.mention}.", ephemeral=True
+                )
+            else:
+                # Ghost ticket cleanup
+                print(f"[CLEANUP] Removing ghost ticket for user {user.id}")
+                remove_ticket(user.id)
+                remove_claim(active_tickets.get(user.id))
+                remove_done_ticket(active_tickets.get(user.id))
         current_ticket_num = increment_ticket_counter()
 
     # Determine category (with overflow support for regular tickets)
@@ -1212,17 +1224,30 @@ async def create_ticket(interaction: Interaction, category_name: str):
     
     staff_role = guild.get_role(STAFF_ROLE_ID)
     helper_role = guild.get_role(HELPER_ROLE_ID)
+    admin_role = guild.get_role(ADMIN_ROLE_ID)
     channel_name = f"{'x8-' if is_x8 else ''}ticket-{current_ticket_num:04}"
+
+    # Build overwrites dictionary
+    overwrites = {
+        guild.default_role: dc.PermissionOverwrite(view_channel=False),
+        user: dc.PermissionOverwrite(view_channel=True, send_messages=True),
+        staff_role: dc.PermissionOverwrite(view_channel=True, send_messages=True),
+        helper_role: dc.PermissionOverwrite(view_channel=True, send_messages=True)
+    }
+    
+    # Add admin role if it exists
+    if admin_role:
+        overwrites[admin_role] = dc.PermissionOverwrite(
+            view_channel=True, 
+            send_messages=True, 
+            manage_channels=True,
+            manage_messages=True
+        )
 
     ticket_channel = await guild.create_text_channel(
         name=channel_name,
         category=category,
-        overwrites={
-            guild.default_role: dc.PermissionOverwrite(view_channel=False),
-            user: dc.PermissionOverwrite(view_channel=True, send_messages=True),
-            staff_role: dc.PermissionOverwrite(view_channel=True, send_messages=True),
-            helper_role: dc.PermissionOverwrite(view_channel=True, send_messages=True)
-        }
+        overwrites=overwrites
     )
     
     # Save to appropriate storage
@@ -1283,10 +1308,16 @@ async def create_midman_ticket(interaction: Interaction, item: str, buyer: str, 
     # Cek ticket aktif (cek di midman_tickets)
     if user.id in midman_tickets:
         ch = guild.get_channel(midman_tickets[user.id])
-        ch_mention = ch.mention if ch else "tidak ditemukan"
-        return await interaction.response.send_message(
-            f"⚠ Kamu masih punya ticket Midman aktif di {ch_mention}.", ephemeral=True
-        )
+        if ch:
+            return await interaction.response.send_message(
+                f"⚠ Kamu masih punya ticket Midman aktif di {ch.mention}.", ephemeral=True
+            )
+        else:
+            # Ghost ticket cleanup
+            print(f"[CLEANUP] Removing ghost Midman ticket for user {user.id}")
+            remove_midman_ticket(user.id)
+            remove_claim(midman_tickets.get(user.id))
+            remove_done_ticket(midman_tickets.get(user.id))
 
     current_ticket_num = increment_midman_ticket_counter()
     category = guild.get_channel(TICKET_CATEGORY_ID_MIDMAN)
@@ -1518,20 +1549,16 @@ class Client(commands.Bot):
         self.add_view(DoneButtonView(is_premium=True))
         self.add_view(DoneButtonView(is_premium=False))
         
-        # Payment action view - commented out temporarily if causing issues
-        # Uncomment after verifying custom_id is added to buttons
-        try:
-            self.add_view(PaymentActionView())
-        except ValueError as e:
-            print(f"[VIEWS] ⚠ PaymentActionView not registered: {e}")
+        # Payment action view
+        self.add_view(PaymentActionView())
         
-        print("[VIEWS] ✓ Core persistent views registered")
+        print("[VIEWS] ✓ All persistent views registered")
 
     async def on_ready(self):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally xc synced {len(synced)} slash commands.")
+            print(f"✅ Globally vorahub synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
@@ -1681,21 +1708,36 @@ class Client(commands.Bot):
             return
         content = tag if tag else None
         
-        # If message_id is None, just send new message
-        if message_id is None:
-            await channel.send(content=content, embed=embed, view=view)
-            print(f"[PANEL] Message baru dibuat di channel {channel_id}.")
-            return
-            
+        # If message_id is provided, try to edit it directly
+        if message_id:
+            try:
+                msg = await channel.fetch_message(message_id)
+                await msg.edit(content=content, embed=embed, view=view)
+                print(f"[PANEL] Message {message_id} berhasil di-edit.")
+                return
+            except dc.NotFound:
+                print(f"[PANEL] Message {message_id} tidak ditemukan, mencoba mencari pesan terakhir bot...")
+                # Fallthrough to search logic
+            except Exception as e:
+                print(f"[PANEL] Gagal edit message {message_id}: {e}")
+                return
+
+        # Smart detection: Search for existing bot message to update
         try:
-            msg = await channel.fetch_message(message_id)
-            await msg.edit(content=content, embed=embed, view=view)
-            print(f"[PANEL] Message {message_id} berhasil di-edit.")
-        except dc.NotFound:
+            # Check last 10 messages for a message from this bot
+            async for history_msg in channel.history(limit=10):
+                if history_msg.author == self.user:
+                    # Found existing bot message! Update it.
+                    await history_msg.edit(content=content, embed=embed, view=view)
+                    print(f"[PANEL] Berhasil update panel yang sudah ada di {channel.name} (ID: {history_msg.id})")
+                    return
+            
+            # If no existing message found, send new one
             await channel.send(content=content, embed=embed, view=view)
-            print(f"[PANEL] Message {message_id} tidak ditemukan, baru dibuat.")
+            print(f"[PANEL] Message baru dibuat di channel {channel_id} (tidak ada panel sebelumnya).")
+            
         except Exception as e:
-            print(f"[PANEL] Gagal edit/send message {message_id}: {e}")
+            print(f"[PANEL] Gagal auto-detect/send panel: {e}")
 
     
     async def on_message(self, message: dc.Message):
