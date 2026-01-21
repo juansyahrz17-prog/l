@@ -1493,11 +1493,44 @@ class Client(commands.Bot):
         }
     ]
 
+    async def setup_hook(self):
+        """Called when bot is starting up - register persistent views here"""
+        # Register all persistent views so buttons work after restart
+        # These views have timeout=None which makes them persistent
+        
+        # Ticket panel buttons
+        self.add_view(TicketPanelButtons())
+        self.add_view(TicketX8Button())
+        self.add_view(TicketMidmanButton())
+        
+        # Ticket control views - need to add multiple instances for different ticket types
+        # Regular tickets (premium and non-premium)
+        self.add_view(TicketControlView(is_premium=True, is_x8=False))
+        self.add_view(TicketControlView(is_premium=False, is_x8=False))
+        
+        # X8 tickets
+        self.add_view(TicketControlView(is_premium=False, is_x8=True))
+        
+        # Midman tickets
+        self.add_view(MidmanTicketControlView())
+        
+        # Done button views
+        self.add_view(DoneButtonView(is_premium=True))
+        self.add_view(DoneButtonView(is_premium=False))
+        
+        # Payment action view
+        self.add_view(PaymentActionView())
+        
+        # Verification view
+        self.add_view(VerifView())
+        
+        print("[VIEWS] ✓ All persistent views registered")
+
     async def on_ready(self):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally xc synced {len(synced)} slash commands.")
+            print(f"✅ Globally x synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
@@ -2445,6 +2478,108 @@ async def gajisudahbayar(interaction: dc.Interaction, staff: dc.Member):
         await interaction.channel.send(
             f"📢 {staff.mention} Gaji kamu sebesar **IDR {gaji:,}** telah dibayar! "
             f"Sales sudah di-reset, kamu bisa claim ticket lagi."
+        )
+
+@client.tree.command(name="resetcooldown", description="[ADMIN] Reset cooldown claim ticket untuk staff")
+@app_commands.describe(staff="Staff yang ingin di-reset cooldownnya")
+async def reset_cooldown(interaction: dc.Interaction, staff: dc.Member):
+    """Reset cooldown untuk staff tertentu - hanya bisa digunakan oleh admin"""
+    
+    # Check if user is admin
+    admin_role = interaction.guild.get_role(ADMIN_ROLE_ID)
+    if admin_role not in interaction.user.roles:
+        await interaction.response.send_message(
+            "❌ **Command ini hanya untuk Admin!**\n"
+            "Hanya admin yang bisa reset cooldown staff.",
+            ephemeral=True
+        )
+        return
+    
+    # Check if target is staff
+    staff_role = interaction.guild.get_role(STAFF_ROLE_ID)
+    helper_role = interaction.guild.get_role(HELPER_ROLE_ID)
+    
+    if staff_role not in staff.roles and helper_role not in staff.roles:
+        await interaction.response.send_message(
+            f"❌ {staff.mention} bukan staff atau helper!",
+            ephemeral=True
+        )
+        return
+    
+    # Get current cooldown status
+    on_cooldown, time_left, current_count = is_staff_on_cooldown(staff.id)
+    
+    # Reset cooldown
+    staff_key = str(staff.id)
+    if staff_key in staff_cooldowns:
+        old_data = staff_cooldowns[staff_key].copy()
+        staff_cooldowns[staff_key] = {
+            "cycle_start": datetime.datetime.now().isoformat(),
+            "claims_in_cycle": 0,
+            "exhausted_cooldown_until": None
+        }
+        save_cooldowns()
+        
+        # Create embed
+        embed = dc.Embed(
+            title="🔄 Cooldown Di-Reset",
+            description=f"Cooldown untuk {staff.mention} telah berhasil di-reset!",
+            color=0x00ff00
+        )
+        
+        # Show previous status
+        if on_cooldown and time_left:
+            hours = int(time_left.total_seconds() // 3600)
+            minutes = int((time_left.total_seconds() % 3600) // 60)
+            embed.add_field(
+                name="📊 Status Sebelumnya",
+                value=f"Cooldown aktif: {hours}j {minutes}m tersisa\nClaim: {current_count}/{COOLDOWN_LIMIT}",
+                inline=False
+            )
+        else:
+            embed.add_field(
+                name="📊 Status Sebelumnya",
+                value=f"Claim: {current_count}/{COOLDOWN_LIMIT}",
+                inline=False
+            )
+        
+        embed.add_field(
+            name="✅ Status Baru",
+            value=f"Claim: 0/{COOLDOWN_LIMIT}\nCooldown: Tidak ada\nStaff bisa claim ticket lagi!",
+            inline=False
+        )
+        
+        embed.set_footer(text=f"Di-reset oleh {interaction.user.name}")
+        embed.timestamp = datetime.datetime.now()
+        
+        await interaction.response.send_message(embed=embed)
+        
+        # Notify staff via DM
+        try:
+            dm_embed = dc.Embed(
+                title="🔄 Cooldown Kamu Di-Reset!",
+                description=f"Admin {interaction.user.mention} telah mereset cooldown kamu.",
+                color=0x00ff00
+            )
+            dm_embed.add_field(
+                name="✅ Status Baru",
+                value=f"Claim: 0/{COOLDOWN_LIMIT}\nKamu bisa claim ticket lagi!",
+                inline=False
+            )
+            dm_embed.set_footer(text="VoraHub Cooldown System")
+            
+            await staff.send(embed=dm_embed)
+        except:
+            # If DM fails, mention in channel
+            await interaction.channel.send(
+                f"📢 {staff.mention} Cooldown kamu telah di-reset oleh admin! Kamu bisa claim ticket lagi."
+            )
+    else:
+        # No cooldown data exists
+        await interaction.response.send_message(
+            f"ℹ️ {staff.mention} tidak memiliki cooldown aktif.\n"
+            f"Staff ini belum pernah claim ticket atau cooldown sudah expired.",
+            ephemeral=True
         )
 
 from dotenv import load_dotenv
