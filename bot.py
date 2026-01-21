@@ -1497,7 +1497,7 @@ class Client(commands.Bot):
         print(f"Logged in as {self.user}")
         try:
             synced = await self.tree.sync()
-            print(f"✅ Globally Andrahub synced {len(synced)} slash commands.")
+            print(f"✅ Globally xc synced {len(synced)} slash commands.")
         except Exception as e:
             print(f"❌ Failed to sync commands: {e}")
 
@@ -1546,6 +1546,24 @@ class Client(commands.Bot):
         # Iterate through all active tickets
         for user_id, channel_id in list(active_tickets.items()):
             try:
+                # Get the ticket channel first
+                channel = guild.get_channel(channel_id)
+                if not channel:
+                    continue
+                
+                # Check if this is a premium ticket (in either primary or secondary category)
+                if channel.category_id not in [TICKET_CATEGORY_ID, TICKET2_CATEGORY_ID]:
+                    continue
+                
+                # Check if ticket is already marked as done
+                if is_ticket_done(channel_id):
+                    continue
+                
+                # Check if ticket is claimed
+                claimer_id = get_claim(channel_id)
+                if not claimer_id:
+                    continue
+                
                 # Get the ticket creator
                 member = guild.get_member(user_id)
                 if not member:
@@ -1559,7 +1577,7 @@ class Client(commands.Bot):
                 # This ensures we match the specific transaction, not just the user's role
                 has_wl_message = False
                 try:
-                    async for msg in channel.history(limit=20):
+                    async for msg in channel.history(limit=50):
                         content = msg.content or ""
                         # Check embeds too
                         if msg.embeds:
@@ -1569,28 +1587,33 @@ class Client(commands.Bot):
                         if "You have been whitelisted! You can access the script via this message" in content:
                             has_wl_message = True
                             break
-                except:
-                    pass
+                except Exception as hist_error:
+                    print(f"[AUTO-CHECK] ✗ Error reading history for {channel.name}: {hist_error}")
+                    continue
                 
                 if not has_wl_message:
                     continue
                 
-                # Check if ticket is already marked as done
-                if is_ticket_done(channel_id):
-                    continue
+                # Check if Done button already exists in recent messages
+                has_done_panel = False
+                try:
+                    async for msg in channel.history(limit=10):
+                        # Check if message has Done button view
+                        if msg.author.id == self.user.id:
+                            content = msg.content or ""
+                            if msg.embeds:
+                                for emb in msg.embeds:
+                                    if "Whitelist Berhasil" in (emb.title or ""):
+                                        has_done_panel = True
+                                        break
+                            if has_done_panel:
+                                break
+                except:
+                    pass
                 
-                # Get the ticket channel
-                channel = guild.get_channel(channel_id)
-                if not channel:
-                    continue
-                
-                # Check if this is a premium ticket (in TICKET_CATEGORY_ID)
-                if channel.category_id != TICKET_CATEGORY_ID:
-                    continue
-                
-                # Check if ticket is claimed
-                claimer_id = get_claim(channel_id)
-                if not claimer_id:
+                if has_done_panel:
+                    # Panel already exists, just mark as done to prevent future checks
+                    mark_ticket_done(channel_id)
                     continue
                 
                 # Send Done panel to this channel
@@ -1665,8 +1688,8 @@ class Client(commands.Bot):
                 claimer_id = get_claim(channel_id)
                 if claimer_id:
                     # Determine if premium by checking channel category or name
-                    # Assuming premium tickets are in TICKET_CATEGORY_ID
-                    if message.channel.category_id == TICKET_CATEGORY_ID:
+                    # Check if ticket is in either primary or secondary category
+                    if message.channel.category_id in [TICKET_CATEGORY_ID, TICKET2_CATEGORY_ID]:
                         is_premium_ticket = True
                     
                     if is_premium_ticket:
