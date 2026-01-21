@@ -58,7 +58,7 @@ function generateKey() {
 }
 
 // Helper: dapatkan key aktif user dari cache atau Firestore
-// Dengan validasi expiry dan logging yang lebih baik
+// FIXED: Validasi expiry yang benar untuk permanent keys (expiresAt: null)
 async function getUserActiveKeys(userId, discordTag) {
     const cached = userKeyCache.get(userId);
     if (cached && cached.expires > Date.now()) {
@@ -77,25 +77,39 @@ async function getUserActiveKeys(userId, discordTag) {
     const batch = db.batch();
     let batchCount = 0;
     const now = Date.now();
+    const expiredKeys = [];
 
     // Process keys found by userId
     snapshotId.forEach(doc => {
         const data = doc.data();
-        // Validasi expiry: skip key yang sudah expired
-        if (data.expiresAt && data.expiresAt.toMillis() < now) {
-            console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(data.expiresAt.toMillis())}`);
-            return; // Skip expired key
+        
+        // FIXED: Validasi expiry dengan benar
+        // Jika expiresAt adalah null/undefined (permanent), tetap valid
+        // Jika expiresAt ada, cek apakah sudah expired
+        if (data.expiresAt !== null && data.expiresAt !== undefined) {
+            const expiryTime = data.expiresAt.toMillis();
+            if (expiryTime < now) {
+                console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(expiryTime)}`);
+                expiredKeys.push(doc.id);
+                return; // Skip expired key
+            }
         }
+        
         keys.add(doc.id);
     });
 
     // Process keys found by discordTag
     snapshotTag.forEach(doc => {
         const data = doc.data();
-        // Validasi expiry: skip key yang sudah expired
-        if (data.expiresAt && data.expiresAt.toMillis() < now) {
-            console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(data.expiresAt.toMillis())}`);
-            return; // Skip expired key
+        
+        // FIXED: Validasi expiry dengan benar
+        if (data.expiresAt !== null && data.expiresAt !== undefined) {
+            const expiryTime = data.expiresAt.toMillis();
+            if (expiryTime < now) {
+                console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(expiryTime)}`);
+                expiredKeys.push(doc.id);
+                return; // Skip expired key
+            }
         }
 
         keys.add(doc.id);
@@ -108,36 +122,45 @@ async function getUserActiveKeys(userId, discordTag) {
         }
     });
 
-    // Run migration with retry mechanism
+    // Delete expired keys in batch
+    if (expiredKeys.length > 0) {
+        console.log(`[CLEANUP] Deleting ${expiredKeys.length} expired keys`);
+        for (const keyId of expiredKeys) {
+            batch.delete(db.collection('keys').doc(keyId));
+            batchCount++;
+        }
+    }
+
+    // Run migration/cleanup with retry mechanism
     if (batchCount > 0) {
         const maxRetries = 3;
         let retryCount = 0;
 
-        const attemptMigration = async () => {
+        const attemptBatchCommit = async () => {
             try {
                 await batch.commit();
-                console.log(`[AUTO-MIGRATION SUCCESS] Updated ${batchCount} keys for user ${userId}`);
+                console.log(`[BATCH SUCCESS] Updated/deleted ${batchCount} keys for user ${userId}`);
             } catch (e) {
                 retryCount++;
-                console.error(`[AUTO-MIGRATION FAILED] Attempt ${retryCount}/${maxRetries}:`, e);
+                console.error(`[BATCH FAILED] Attempt ${retryCount}/${maxRetries}:`, e);
 
                 if (retryCount < maxRetries) {
                     // Retry after delay
-                    setTimeout(() => attemptMigration(), 1000 * retryCount);
+                    setTimeout(() => attemptBatchCommit(), 1000 * retryCount);
                 } else {
-                    console.error(`[AUTO-MIGRATION FAILED] All retries exhausted for user ${userId}`);
+                    console.error(`[BATCH FAILED] All retries exhausted for user ${userId}`);
                     if (webhook) {
-                        webhook.send({ content: `⚠️ Auto-migration failed for user ${userId} after ${maxRetries} attempts` }).catch(() => { });
+                        webhook.send({ content: `⚠️ Batch operation failed for user ${userId} after ${maxRetries} attempts` }).catch(() => { });
                     }
                 }
             }
         };
 
-        attemptMigration();
+        attemptBatchCommit();
     }
 
     const result = Array.from(keys);
-    console.log(`[KEY FETCH] User ${userId} has ${result.length} active keys`);
+    console.log(`[KEY FETCH] User ${userId} has ${result.length} active keys (${expiredKeys.length} expired removed)`);
 
     // Cache dengan durasi lebih lama untuk stabilitas
     userKeyCache.set(userId, {
@@ -290,7 +313,7 @@ client.once('ready', async () => {
     ];
 
     await client.application.commands.set(commands);
-    console.log("Slash commands X!");
+    console.log("Slash commands registered!");
 });
 
 // =============== SATU INTERACTION HANDLER SAJA (lebih cepat) ===============
@@ -979,5 +1002,4 @@ if (!process.env.TOKEN) {
     console.error('Missing TOKEN in environment. Bot will not login.');
 } else {
     client.login(process.env.TOKEN).catch(err => console.error('Login error:', err));
-
 }
