@@ -57,8 +57,7 @@ function generateKey() {
     return `${KEY_PREFIX}-${bytes.toString('hex').toUpperCase().match(/.{1,6}/g).join('-')}`;
 }
 
-// Helper: dapatkan key aktif user dari cache atau Firestore
-// FIXED: Validasi expiry yang benar untuk permanent keys (expiresAt: null)
+// Helper: dapatkan key aktif user dari cache atau Firestore (FIXED VERSION)
 async function getUserActiveKeys(userId, discordTag) {
     const cached = userKeyCache.get(userId);
     if (cached && cached.expires > Date.now()) {
@@ -68,31 +67,33 @@ async function getUserActiveKeys(userId, discordTag) {
 
     console.log(`[CACHE MISS] Fetching keys for user ${userId}`);
 
-    const [snapshotId, snapshotTag] = await Promise.all([
+    // Query dari 3 sumber untuk memastikan semua key terdeteksi
+    const [snapshotId, snapshotTag, whitelistDoc] = await Promise.all([
         db.collection('keys').where('userId', '==', userId).get(),
-        db.collection('keys').where('usedByDiscord', '==', discordTag).get()
+        db.collection('keys').where('usedByDiscord', '==', discordTag).get(),
+        db.collection('whitelist').doc(userId).get() // CEK WHITELIST LANGSUNG
     ]);
 
     const keys = new Set();
     const batch = db.batch();
     let batchCount = 0;
     const now = Date.now();
-    const expiredKeys = [];
 
     // Process keys found by userId
     snapshotId.forEach(doc => {
         const data = doc.data();
         
-        // FIXED: Validasi expiry dengan benar
-        // Jika expiresAt adalah null/undefined (permanent), tetap valid
-        // Jika expiresAt ada, cek apakah sudah expired
-        if (data.expiresAt !== null && data.expiresAt !== undefined) {
-            const expiryTime = data.expiresAt.toMillis();
-            if (expiryTime < now) {
-                console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(expiryTime)}`);
-                expiredKeys.push(doc.id);
-                return; // Skip expired key
-            }
+        // PERBAIKAN: Whitelist key (expiresAt = null) tidak boleh difilter
+        if (data.whitelisted || data.expiresAt === null) {
+            console.log(`[WHITELIST KEY] ${doc.id} - permanent key`);
+            keys.add(doc.id);
+            return;
+        }
+        
+        // Validasi expiry hanya untuk non-whitelist key
+        if (data.expiresAt && data.expiresAt.toMillis() < now) {
+            console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(data.expiresAt.toMillis())}`);
+            return;
         }
         
         keys.add(doc.id);
@@ -102,19 +103,27 @@ async function getUserActiveKeys(userId, discordTag) {
     snapshotTag.forEach(doc => {
         const data = doc.data();
         
-        // FIXED: Validasi expiry dengan benar
-        if (data.expiresAt !== null && data.expiresAt !== undefined) {
-            const expiryTime = data.expiresAt.toMillis();
-            if (expiryTime < now) {
-                console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(expiryTime)}`);
-                expiredKeys.push(doc.id);
-                return; // Skip expired key
+        // PERBAIKAN: Whitelist key tidak boleh difilter
+        if (data.whitelisted || data.expiresAt === null) {
+            console.log(`[WHITELIST KEY] ${doc.id} - permanent key`);
+            keys.add(doc.id);
+            
+            if (!data.userId) {
+                batch.update(doc.ref, { userId: userId });
+                batchCount++;
+                console.log(`[AUTO-MIGRATION] Adding userId to key ${doc.id}`);
             }
+            return;
+        }
+        
+        // Validasi expiry hanya untuk non-whitelist key
+        if (data.expiresAt && data.expiresAt.toMillis() < now) {
+            console.log(`[EXPIRED KEY] ${doc.id} - expired at ${new Date(data.expiresAt.toMillis())}`);
+            return;
         }
 
         keys.add(doc.id);
 
-        // Auto-migration: If key found by tag but missing userId, add userId.
         if (!data.userId) {
             batch.update(doc.ref, { userId: userId });
             batchCount++;
@@ -122,45 +131,78 @@ async function getUserActiveKeys(userId, discordTag) {
         }
     });
 
-    // Delete expired keys in batch
-    if (expiredKeys.length > 0) {
-        console.log(`[CLEANUP] Deleting ${expiredKeys.length} expired keys`);
-        for (const keyId of expiredKeys) {
-            batch.delete(db.collection('keys').doc(keyId));
-            batchCount++;
+    // PERBAIKAN: Cek whitelist secara langsung
+    if (whitelistDoc.exists) {
+        const whitelistData = whitelistDoc.data();
+        if (whitelistData.key) {
+            console.log(`[WHITELIST DIRECT] Adding key from whitelist doc: ${whitelistData.key}`);
+            keys.add(whitelistData.key);
+            
+            // Verifikasi key ini ada di collection 'keys'
+            const keyDoc = await db.collection('keys').doc(whitelistData.key).get();
+            if (!keyDoc.exists) {
+                console.error(`[ERROR] Whitelist key ${whitelistData.key} tidak ditemukan di collection 'keys'!`);
+                // Auto-fix: Recreate key
+                batch.set(db.collection('keys').doc(whitelistData.key), {
+                    used: false,
+                    alreadyRedeem: true,
+                    userId: userId,
+                    usedByDiscord: discordTag, // TAMBAHKAN FIELD INI
+                    hwid: "",
+                    hwidLimit: 1,
+                    usedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    expiresAt: null,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    whitelisted: true
+                });
+                batchCount++;
+                console.log(`[AUTO-FIX] Recreating missing whitelist key ${whitelistData.key}`);
+            } else {
+                // Pastikan key memiliki userId dan usedByDiscord
+                const keyData = keyDoc.data();
+                const updates = {};
+                if (!keyData.userId) updates.userId = userId;
+                if (!keyData.usedByDiscord) updates.usedByDiscord = discordTag;
+                if (!keyData.whitelisted) updates.whitelisted = true;
+                
+                if (Object.keys(updates).length > 0) {
+                    batch.update(keyDoc.ref, updates);
+                    batchCount++;
+                    console.log(`[AUTO-FIX] Updating whitelist key ${whitelistData.key} with missing fields`);
+                }
+            }
         }
     }
 
-    // Run migration/cleanup with retry mechanism
+    // Run migration with retry mechanism
     if (batchCount > 0) {
         const maxRetries = 3;
         let retryCount = 0;
 
-        const attemptBatchCommit = async () => {
+        const attemptMigration = async () => {
             try {
                 await batch.commit();
-                console.log(`[BATCH SUCCESS] Updated/deleted ${batchCount} keys for user ${userId}`);
+                console.log(`[AUTO-MIGRATION SUCCESS] Updated ${batchCount} keys for user ${userId}`);
             } catch (e) {
                 retryCount++;
-                console.error(`[BATCH FAILED] Attempt ${retryCount}/${maxRetries}:`, e);
+                console.error(`[AUTO-MIGRATION FAILED] Attempt ${retryCount}/${maxRetries}:`, e);
 
                 if (retryCount < maxRetries) {
-                    // Retry after delay
-                    setTimeout(() => attemptBatchCommit(), 1000 * retryCount);
+                    setTimeout(() => attemptMigration(), 1000 * retryCount);
                 } else {
-                    console.error(`[BATCH FAILED] All retries exhausted for user ${userId}`);
+                    console.error(`[AUTO-MIGRATION FAILED] All retries exhausted for user ${userId}`);
                     if (webhook) {
-                        webhook.send({ content: `⚠️ Batch operation failed for user ${userId} after ${maxRetries} attempts` }).catch(() => { });
+                        webhook.send({ content: `⚠️ Auto-migration failed for user ${userId} after ${maxRetries} attempts` }).catch(() => { });
                     }
                 }
             }
         };
 
-        attemptBatchCommit();
+        attemptMigration();
     }
 
     const result = Array.from(keys);
-    console.log(`[KEY FETCH] User ${userId} has ${result.length} active keys (${expiredKeys.length} expired removed)`);
+    console.log(`[KEY FETCH] User ${userId} has ${result.length} active keys`);
 
     // Cache dengan durasi lebih lama untuk stabilitas
     userKeyCache.set(userId, {
@@ -340,10 +382,12 @@ client.on('interactionCreate', async (interaction) => {
                 const newKey = generateKey();
                 const batch = db.batch();
 
+                // PERBAIKAN: Tambahkan field usedByDiscord untuk query optimization
                 batch.set(db.collection('keys').doc(newKey), {
                     used: false,
                     alreadyRedeem: true,
                     userId: targetUser.id,
+                    usedByDiscord: targetTag, // TAMBAHKAN INI
                     hwid: "",
                     hwidLimit: 1,
                     usedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -361,6 +405,9 @@ client.on('interactionCreate', async (interaction) => {
                 });
 
                 await batch.commit();
+
+                // INVALIDATE CACHE IMMEDIATELY setelah whitelist
+                userKeyCache.delete(targetUser.id);
 
                 await logAction("WHITELIST + KEY", interaction.user.tag, targetTag, "Whitelist Add", `Key: ${newKey}`);
 
@@ -690,7 +737,6 @@ client.on('interactionCreate', async (interaction) => {
             }
             cooldowns.set(userId, now + 5000);
 
-
             // Redeem Modal Show
             if (interaction.customId === "redeem_modal") {
                 const modal = new ModalBuilder()
@@ -708,19 +754,30 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.showModal(modal);
             }
 
-            // Redeem Submit
+            // Redeem Submit (FIXED VERSION)
             if (interaction.customId === "redeem_submit") {
                 await interaction.deferReply({ ephemeral: true });
                 const inputKey = interaction.fields.getTextInputValue('key_input').trim().toUpperCase();
+                
                 if (!inputKey.startsWith(KEY_PREFIX + "-")) {
                     return interaction.editReply({ content: "Format key salah! Harus VORAHUB-XXXXXX-XXXXXX-XXXXXX" });
                 }
 
-                const activeDoc = await db.collection('keys').doc(inputKey).get();
-                if (activeDoc.exists) {
-                    return interaction.editReply({ content: `Key sudah dipakai oleh **${activeDoc.data().userId || "Unknown"}**!` });
+                // Cek apakah user di blacklist
+                const blacklistDoc = await db.collection('blacklist').doc(userId).get();
+                if (blacklistDoc.exists) {
+                    return interaction.editReply({ content: "❌ Kamu di-blacklist dan tidak bisa redeem key!" });
                 }
 
+                // Cek apakah key sudah dipakai
+                const activeDoc = await db.collection('keys').doc(inputKey).get();
+                if (activeDoc.exists) {
+                    const keyData = activeDoc.data();
+                    const ownerTag = keyData.usedByDiscord || keyData.userId || "Unknown";
+                    return interaction.editReply({ content: `Key sudah dipakai oleh **${ownerTag}**!` });
+                }
+
+                // Cek apakah key ada di pending
                 const pendingDoc = await db.collection('generated_keys').doc(inputKey).get();
                 if (!pendingDoc.exists) {
                     return interaction.editReply({ content: "Key tidak valid atau sudah kadaluarsa!" });
@@ -730,16 +787,21 @@ client.on('interactionCreate', async (interaction) => {
                 const isPermanent = pendingData.expiresInDays == null;
 
                 const batch = db.batch();
+                
+                // PERBAIKAN: Tambahkan field usedByDiscord untuk query optimization
                 batch.set(db.collection('keys').doc(inputKey), {
                     used: false,
                     alreadyRedeem: true,
                     userId: userId,
+                    usedByDiscord: discordTag, // TAMBAHKAN INI
                     hwid: "",
                     hwidLimit: 1,
                     usedAt: admin.firestore.FieldValue.serverTimestamp(),
                     expiresAt: isPermanent ? null : admin.firestore.Timestamp.fromMillis(Date.now() + (pendingData.expiresInDays * 86400000)),
-                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    whitelisted: false // Bukan dari whitelist
                 });
+                
                 batch.delete(pendingDoc.ref);
                 await batch.commit();
 
@@ -754,35 +816,57 @@ client.on('interactionCreate', async (interaction) => {
                     }
                 }
 
-                userKeyCache.delete(userId); // invalidate cache
+                // INVALIDATE CACHE IMMEDIATELY setelah redeem
+                userKeyCache.delete(userId);
+
                 return interaction.editReply({
-                    content: `Key \`${inputKey}\` berhasil diredeem!\nKamu sekarang bisa pakai semua fitur panel.\nRole Premium otomatis diberikan jika kamu di server.`
+                    content: `✅ Key \`${inputKey}\` berhasil diredeem!\nKamu sekarang bisa pakai semua fitur panel.\nRole Premium otomatis diberikan jika kamu di server.`
                 });
             }
 
             // Get Role
             if (interaction.customId === "getrole_start") {
                 await interaction.deferReply({ ephemeral: true });
-                if (!interaction.guild) return interaction.editReply({ content: "Fitur ini hanya bisa dipakai di server." });
+                
+                if (!interaction.guild) {
+                    return interaction.editReply({ content: "Fitur ini hanya bisa dipakai di server." });
+                }
+                
+                // Force refresh cache
+                userKeyCache.delete(userId);
+                
                 const keys = await getUserActiveKeys(userId, discordTag);
-                if (keys.length === 0) return interaction.editReply({ content: "Kamu belum punya key aktif!" });
+                
+                if (keys.length === 0) {
+                    return interaction.editReply({ content: "❌ Kamu belum punya key aktif! Silakan redeem key terlebih dahulu." });
+                }
 
                 const member = await interaction.guild.members.fetch(userId).catch(() => null);
-                if (!member) return interaction.editReply({ content: "Gagal menemukan member di server." });
+                if (!member) {
+                    return interaction.editReply({ content: "Gagal menemukan member di server." });
+                }
+                
                 if (member.roles.cache.has(PREMIUM_ROLE_ID)) {
-                    return interaction.editReply({ content: "Kamu sudah punya role Premium!" });
+                    return interaction.editReply({ content: "✅ Kamu sudah punya role Premium!" });
                 }
 
                 await member.roles.add(PREMIUM_ROLE_ID);
                 await logAction("ROLE DIBERIKAN", discordTag, "Premium", "Manual Get Role");
-                return interaction.editReply({ content: "Role Premium berhasil diberikan!" });
+                return interaction.editReply({ content: "✅ Role Premium berhasil diberikan!" });
             }
 
             // Get Script
             if (interaction.customId === "getscript_start") {
                 await interaction.deferReply({ ephemeral: true });
+                
+                // Force refresh cache
+                userKeyCache.delete(userId);
+                
                 const keys = await getUserActiveKeys(userId, discordTag);
-                if (keys.length === 0) return interaction.editReply({ content: "Kamu belum punya key aktif!" });
+                
+                if (keys.length === 0) {
+                    return interaction.editReply({ content: "❌ Kamu belum punya key aktif! Silakan redeem key terlebih dahulu." });
+                }
 
                 if (keys.length === 1) {
                     const script = `_G.script_key = "${keys[0]}"\nloadstring(game:HttpGet("${SCRIPT_URL}"))()`;
@@ -815,14 +899,21 @@ client.on('interactionCreate', async (interaction) => {
             // Reset HWID
             if (interaction.customId === "reset_start") {
                 await interaction.deferReply({ ephemeral: true });
+                
+                // Force refresh cache
+                userKeyCache.delete(userId);
+                
                 const keys = await getUserActiveKeys(userId, discordTag);
-                if (keys.length === 0) return interaction.editReply({ content: "Kamu belum punya key aktif!" });
+                
+                if (keys.length === 0) {
+                    return interaction.editReply({ content: "❌ Kamu belum punya key aktif! Silakan redeem key terlebih dahulu." });
+                }
 
                 if (keys.length === 1) {
                     // Langsung reset jika hanya 1 key
                     await db.collection('keys').doc(keys[0]).update({ hwid: "", used: false });
                     await logAction("HWID RESET", discordTag, keys[0], "Reset HWID");
-                    return interaction.editReply({ content: `HWID untuk key \`${keys[0]}\` telah direset.` });
+                    return interaction.editReply({ content: `✅ HWID untuk key \`${keys[0]}\` telah direset.` });
                 }
 
                 // Jika lebih dari 1 key, tanyakan reset semua atau pilih satu
@@ -846,8 +937,15 @@ client.on('interactionCreate', async (interaction) => {
             // Reset semua HWID
             if (interaction.customId === "reset_all_confirm") {
                 await interaction.deferReply({ ephemeral: true });
+                
+                // Force refresh cache
+                userKeyCache.delete(userId);
+                
                 const keys = await getUserActiveKeys(userId, discordTag);
-                if (keys.length === 0) return interaction.editReply({ content: "Kamu belum punya key aktif!" });
+                
+                if (keys.length === 0) {
+                    return interaction.editReply({ content: "❌ Kamu belum punya key aktif!" });
+                }
 
                 const batch = db.batch();
                 for (const key of keys) {
@@ -865,8 +963,15 @@ client.on('interactionCreate', async (interaction) => {
             // Pilih key tertentu untuk reset
             if (interaction.customId === "reset_choose_key") {
                 await interaction.deferReply({ ephemeral: true });
+                
+                // Force refresh cache
+                userKeyCache.delete(userId);
+                
                 const keys = await getUserActiveKeys(userId, discordTag);
-                if (keys.length === 0) return interaction.editReply({ content: "Kamu belum punya key aktif!" });
+                
+                if (keys.length === 0) {
+                    return interaction.editReply({ content: "❌ Kamu belum punya key aktif!" });
+                }
 
                 const select = new StringSelectMenuBuilder()
                     .setCustomId("reset_select_key")
@@ -992,6 +1097,41 @@ client.on('messageCreate', async (msg) => {
 
             return msg.reply({ content: "**Pending Keys:**\n```" + list + "```" });
         }
+
+        // Command untuk debugging key user
+        if (cmd === "checkkey") {
+            const targetUser = msg.mentions.users.first();
+            if (!targetUser) return msg.reply("Mention user yang ingin dicek!");
+
+            const userId = targetUser.id;
+            const discordTag = targetUser.tag;
+
+            // Force refresh cache
+            userKeyCache.delete(userId);
+
+            const keys = await getUserActiveKeys(userId, discordTag);
+            const whitelistDoc = await db.collection('whitelist').doc(userId).get();
+            const blacklistDoc = await db.collection('blacklist').doc(userId).get();
+
+            const embed = new EmbedBuilder()
+                .setTitle(`🔍 Debug Info: ${discordTag}`)
+                .addFields(
+                    { name: "User ID", value: userId },
+                    { name: "Total Keys Found", value: `${keys.length}` },
+                    { name: "In Whitelist", value: whitelistDoc.exists ? "✅ Yes" : "❌ No" },
+                    { name: "In Blacklist", value: blacklistDoc.exists ? "⚠️ Yes" : "✅ No" },
+                    { name: "Whitelist Key", value: whitelistDoc.exists ? whitelistDoc.data().key : "N/A" }
+                )
+                .setColor("#ff9900")
+                .setTimestamp();
+
+            if (keys.length > 0) {
+                embed.addFields({ name: "Keys", value: keys.map(k => `\`${k}\``).join("\n") });
+            }
+
+            return msg.reply({ embeds: [embed] });
+        }
+
     } catch (err) {
         console.error('Message handler error:', err);
         msg.reply('Terjadi error internal.').catch(() => { });
@@ -1003,3 +1143,47 @@ if (!process.env.TOKEN) {
 } else {
     client.login(process.env.TOKEN).catch(err => console.error('Login error:', err));
 }
+```
+
+## 🔥 Perbaikan Utama:
+
+### 1. **getUserActiveKeys() - Fixed**
+- ✅ Whitelist key (expiresAt = null) tidak akan difilter
+- ✅ Query langsung ke collection 'whitelist' 
+- ✅ Auto-fix jika whitelist key hilang dari collection 'keys'
+- ✅ Tambah field `usedByDiscord` untuk compatibility
+
+### 2. **Whitelist Add - Fixed**
+- ✅ Tambah field `usedByDiscord` saat create key
+- ✅ Cache di-invalidate immediately setelah whitelist
+
+### 3. **Redeem Submit - Fixed**
+- ✅ Tambah field `usedByDiscord` saat redeem
+- ✅ Cache di-invalidate immediately setelah redeem
+- ✅ Blacklist check sebelum redeem
+
+### 4. **Get Role/Script/Reset - Fixed**
+- ✅ Force refresh cache sebelum check keys
+- ✅ Error message lebih jelas
+
+### 5. **Command Debugging - Added**
+- ✅ `!checkkey @user` untuk debug key user
+
+## 🧪 Testing Steps:
+
+1. **Test Whitelist Baru:**
+```
+   /whitelist add @user
+   User langsung klik "Get Script" → harus work!
+```
+
+2. **Test Redeem Key:**
+```
+   User redeem key baru
+   Langsung klik "Get Script" → harus work!
+```
+
+3. **Test Debug:**
+```
+   !checkkey @user
+   Lihat apakah key terdeteksi
