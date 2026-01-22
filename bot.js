@@ -521,7 +521,7 @@ client.once('ready', async () => {
     console.log(`✅ Bot ${client.user.tag} is ONLINE and OPTIMIZED!`);
     console.log(`📊 Serving ${client.guilds.cache.size} guilds with ${client.users.cache.size} users`);
 
-    client.user.setActivity('Vorahub On Top!!', { type: 4 });
+    client.user.setActivity('Vorahub On Top | Optimized', { type: 4 });
 
     // Log database stats
     try {
@@ -1821,7 +1821,7 @@ client.on('messageCreate', async (msg) => {
         if (cmd === "panel") {
             const embed = new EmbedBuilder()
                 .setTitle("Vorahub Premium Panel")
-                .setDescription("This panel is for the project: **Vorahub**\n\nIf you're a buyer, click on the buttons below to:\n• Redeem your key\n• Reset your HWID\n• Get the script\n• Get your role")
+                .setDescription("This panel is for the project: Vorahub\n\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role")
                 .setColor("#7289da")
                 .setTimestamp();
 
@@ -1851,6 +1851,60 @@ client.on('messageCreate', async (msg) => {
             await logAction("PANEL CREATED", msg.author.tag, msg.channel.name, "Create Panel");
 
             const confirm = await msg.reply("✅ Panel berhasil dibuat!");
+            setTimeout(() => confirm.delete().catch(() => { }), 5000);
+            return;
+        }
+
+        // ========== !paneltext (Copy-Paste Ready) ==========
+        if (cmd === "paneltext") {
+            const panelText = `**🎮 Vorahub Premium Panel**
+
+This panel is for the project: **Vorahub**
+
+If you're a buyer, click on the buttons below to redeem your key, get the script or get your role
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+**Features:**
+🔑 Redeem your premium key
+🔄 Reset your HWID when needed
+📜 Get your Lua script instantly
+👑 Claim your premium role
+
+**Need help?** Contact staff in <#CHANNEL_ID>
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+*Vorahub On Top* 🚀`;
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId("redeem_modal")
+                    .setLabel("🔑 Redeem Key")
+                    .setStyle(ButtonStyle.Primary),
+                new ButtonBuilder()
+                    .setCustomId("reset_start")
+                    .setLabel("🔄 Reset HWID")
+                    .setStyle(ButtonStyle.Secondary),
+                new ButtonBuilder()
+                    .setCustomId("getscript_start")
+                    .setLabel("📜 Get Script")
+                    .setStyle(ButtonStyle.Success),
+                new ButtonBuilder()
+                    .setCustomId("getrole_start")
+                    .setLabel("👑 Get Role")
+                    .setStyle(ButtonStyle.Danger)
+            );
+
+            const panelMsg = await msg.channel.send({
+                content: panelText,
+                components: [row]
+            });
+
+            latestPanelMessageId = panelMsg.id;
+            latestPanelChannelId = msg.channel.id;
+
+            await logAction("PANEL TEXT CREATED", msg.author.tag, msg.channel.name, "Create Text Panel");
+
+            const confirm = await msg.reply("✅ Panel text berhasil dibuat!");
             setTimeout(() => confirm.delete().catch(() => { }), 5000);
             return;
         }
