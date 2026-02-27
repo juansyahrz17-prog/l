@@ -45,6 +45,7 @@
             font-size: 14px;
             color: #4a9eff;
             font-family: 'Courier New', monospace;
+            white-space: pre-line;
         }
     </style>
 </head>
@@ -57,19 +58,31 @@
     </div>
     
     <script>
-        fetch("./loader/loader.lua", { cache: "no-store" })
-            .then(res => {
-                if (!res.ok) throw new Error("Failed to fetch loader");
-                return res.text();
-            })
-            .then(code => {
-                document.getElementById("status").textContent =
-                    "Loader loaded successfully (" + code.length + " bytes)";
-            })
-            .catch(err => {
-                document.getElementById("status").textContent =
-                    "Error: " + err.message;
-            });
+        const statusElement = document.getElementById("status");
+        statusElement.textContent = "Checking access for loader and tester...";
+
+        function loadLua(path, label) {
+            return fetch(path, { cache: "no-store" })
+                .then(res => {
+                    if (!res.ok) {
+                        throw new Error("Failed to fetch " + label + " (" + res.status + ")");
+                    }
+                    return res.text();
+                })
+                .then(code => {
+                    return label + " loaded successfully (" + code.length + " bytes)";
+                })
+                .catch(err => {
+                    return label + " error: " + err.message;
+                });
+        }
+
+        Promise.all([
+            loadLua("./loader/loader.lua", "Loader"),
+            loadLua("./loader/tester.lua", "Tester")
+        ]).then(messages => {
+            statusElement.textContent = messages.join("\n");
+        });
     </script>
 </body>
 </html>
