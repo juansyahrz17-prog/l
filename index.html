@@ -2,87 +2,792 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Access Denied</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vorahub - Premium Roblox Script Hub</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary: #007bff;
+            --primary-dark: #0056b3;
+            --accent: #00c6ff;
+            --bg-dark: #0f1016;
+            --bg-card: #1a1c24;
+            --text-main: #ffffff;
+            --text-muted: #a0a0a0;
+            --gradient: linear-gradient(135deg, #00c6ff 0%, #0072ff 100%);
+            --glass: rgba(255, 255, 255, 0.05);
+            --glass-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', sans-serif;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
         body {
-            font-family: Arial, sans-serif;
-            background-color: #0a0e27;
-            color: #ffffff;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        @keyframes glow {
+            0% { box-shadow: 0 0 5px rgba(0, 198, 255, 0.2); }
+            50% { box-shadow: 0 0 20px rgba(0, 198, 255, 0.5); }
+            100% { box-shadow: 0 0 5px rgba(0, 198, 255, 0.2); }
+        }
+
+        .animate-fade-in {
+            animation: fadeIn 0.8s ease-out forwards;
+        }
+
+        /* Navbar */
+        nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 5%;
+            background: rgba(15, 16, 22, 0.8);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            border-bottom: 1px solid var(--glass-border);
+            transition: all 0.3s ease;
+        }
+
+        nav:hover {
+            background: rgba(15, 16, 22, 0.95);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.5rem;
+            font-weight: 800;
+            color: white;
+            text-decoration: none;
+            letter-spacing: -0.5px;
+        }
+
+        .logo img {
+            height: 40px;
+            width: auto;
+            filter: drop-shadow(0 0 10px rgba(0, 198, 255, 0.3));
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        .nav-links a {
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: all 0.3s;
+            font-weight: 500;
+            font-size: 0.95rem;
+            position: relative;
+        }
+
+        .nav-links a:hover {
+            color: white;
+        }
+
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            width: 0;
+            height: 2px;
+            bottom: -4px;
+            left: 0;
+            background: var(--gradient);
+            transition: width 0.3s;
+        }
+
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+
+        .btn {
+            padding: 12px 28px;
+            border-radius: 12px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-block;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary {
+            background: var(--gradient);
+            color: white;
+            border: none;
+            box-shadow: 0 4px 15px rgba(0, 114, 255, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn-primary::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            transition: 0.5s;
+        }
+
+        .btn-primary:hover::before {
+            left: 100%;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 114, 255, 0.5);
+        }
+
+        .btn-outline {
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            color: white;
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(5px);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: rgba(0, 198, 255, 0.1);
+        }
+
+        /* Hero Section */
+        .hero {
+            padding: 10rem 5% 6rem;
+            text-align: center;
+            background: 
+                radial-gradient(circle at 50% 50%, rgba(0, 114, 255, 0.08) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(0, 198, 255, 0.05) 0%, transparent 30%);
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+            mask-image: linear-gradient(to bottom, black, transparent);
+            -webkit-mask-image: linear-gradient(to bottom, black, transparent);
+            pointer-events: none;
+        }
+
+        .hero h1 {
+            font-size: 4.5rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.1;
+            font-weight: 800;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        .gradient-text {
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: inline-block;
+            filter: drop-shadow(0 0 30px rgba(0, 114, 255, 0.3));
+        }
+
+        .hero p {
+            font-size: 1.3rem;
+            color: var(--text-muted);
+            max-width: 700px;
+            margin: 0 auto 3rem;
+            animation: fadeIn 0.8s ease-out 0.2s backwards;
+        }
+
+        .hero-btns {
+            display: flex;
+            gap: 1.5rem;
+            justify-content: center;
+            animation: fadeIn 0.8s ease-out 0.4s backwards;
+        }
+
+        /* Stats Section */
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 4rem;
+            padding: 3rem 5%;
+            background: var(--glass);
+            margin: 2rem 5%;
+            border-radius: 24px;
+            border: 1px solid var(--glass-border);
+            backdrop-filter: blur(10px);
+            animation: fadeIn 0.8s ease-out 0.6s backwards;
+        }
+
+        .stat-item {
+            text-align: center;
+            position: relative;
+        }
+
+        .stat-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: -2rem;
+            top: 20%;
+            height: 60%;
+            width: 1px;
+            background: var(--glass-border);
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 600;
+        }
+
+        /* Features Section */
+        .features {
+            padding: 6rem 5%;
+        }
+
+        .section-title {
+            text-align: center;
+            font-size: 3rem;
+            margin-bottom: 4rem;
+            font-weight: 800;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 2.5rem;
+        }
+
+        .feature-card {
+            background: var(--bg-card);
+            padding: 2.5rem;
+            border-radius: 20px;
+            border: 1px solid var(--glass-border);
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(circle at top right, rgba(0, 198, 255, 0.1), transparent 40%);
+            opacity: 0;
+            transition: opacity 0.4s;
+            z-index: -1;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-10px);
+            border-color: var(--primary);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+        }
+
+        .feature-card:hover::before {
+            opacity: 1;
+        }
+
+        .feature-icon {
+            font-size: 2.5rem;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1.5rem;
+            display: inline-block;
+        }
+
+        .feature-card:hover .feature-icon {
+            animation: float 2s ease-in-out infinite;
+        }
+
+        .feature-card h3 {
+            margin-bottom: 1rem;
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+
+        .feature-card p {
+            color: var(--text-muted);
+            font-size: 1rem;
+            line-height: 1.7;
+        }
+
+        /* Pricing Section */
+        .pricing {
+            padding: 6rem 5%;
+            background: linear-gradient(to bottom, var(--bg-dark), #15171e);
+            position: relative;
+        }
+
+        .pricing-grid {
+            display: flex;
+            justify-content: center;
+            gap: 3rem;
+            flex-wrap: wrap;
+            margin-top: 2rem;
+        }
+
+        .pricing-card {
+            background: var(--bg-card);
+            padding: 3.5rem 2.5rem;
+            border-radius: 24px;
+            border: 1px solid var(--glass-border);
+            width: 380px;
+            text-align: center;
+            position: relative;
+            transition: all 0.4s;
+        }
+
+        .pricing-card.premium {
+            border: 2px solid var(--primary);
+            box-shadow: 0 0 30px rgba(0, 114, 255, 0.15);
+            background: linear-gradient(145deg, var(--bg-card), rgba(0, 114, 255, 0.05));
+        }
+
+        .pricing-card:hover {
+            transform: translateY(-10px);
+        }
+
+        .badge {
+            position: absolute;
+            top: -18px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--gradient);
+            padding: 8px 20px;
+            border-radius: 30px;
+            font-size: 0.85rem;
+            font-weight: 800;
+            letter-spacing: 1px;
+            box-shadow: 0 5px 15px rgba(0, 114, 255, 0.4);
+            z-index: 10;
+        }
+
+        .price {
+            font-size: 3.5rem;
+            font-weight: 800;
+            margin: 1.5rem 0;
+            color: white;
+            display: flex;
+            align-items: baseline;
+            justify-content: center;
+            gap: 5px;
+        }
+
+        .price span {
+            font-size: 1.2rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .features-list {
+            list-style: none;
+            margin-bottom: 2.5rem;
+            text-align: left;
+            padding: 0 1rem;
+        }
+
+        .features-list li {
+            margin-bottom: 1.2rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.05rem;
+        }
+
+        .features-list li i {
+            color: var(--accent);
+            font-size: 0.9rem;
+            background: rgba(0, 198, 255, 0.1);
+            padding: 6px;
+            border-radius: 50%;
+        }
+
+        /* Footer */
+        footer {
+            padding: 5rem 5%;
+            border-top: 1px solid var(--glass-border);
+            text-align: center;
+            color: var(--text-muted);
+            background: #0b0c10;
+        }
+
+        .footer-logo {
+            margin-bottom: 1.5rem;
+            font-size: 2rem;
+            font-weight: 800;
+            color: white;
+            letter-spacing: -1px;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 {
+                font-size: 2.8rem;
+            }
+            
+            .stats {
+                flex-direction: column;
+                gap: 2rem;
+                padding: 2rem;
+            }
+
+            .stat-item:not(:last-child)::after {
+                display: none;
+            }
+
+            .nav-links {
+                display: none;
+            }
+            
+            .pricing-card {
+                width: 100%;
+            }
+        }
+
+        /* Loader/Tester Styles (Scoped) */
+        #app-loader {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: #050505;
+            color: #00ff41;
             display: flex;
             justify-content: center;
             align-items: center;
             min-height: 100vh;
             margin: 0;
             padding: 20px;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 9999;
+            overflow: hidden;
         }
         
-        .container {
-            text-align: center;
-            max-width: 500px;
+        #app-loader::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 255, 65, 0.03),
+                rgba(0, 255, 65, 0.03) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
         }
-        
-        h1 {
-            font-size: 72px;
-            margin: 0 0 20px 0;
+
+        #app-loader .container {
+            text-align: left;
+            max-width: 800px;
+            width: 100%;
+            background: rgba(10, 10, 10, 0.9);
+            padding: 40px;
+            border: 1px solid #333;
+            box-shadow: 0 0 50px rgba(0, 255, 65, 0.1);
+            position: relative;
+        }
+
+        #app-loader .container::before {
+            content: "SYSTEM_ACCESS_TERMINAL_V2.0";
+            position: absolute;
+            top: -12px;
+            left: 20px;
+            background: #050505;
+            padding: 0 10px;
             color: #4a9eff;
+            font-size: 0.8rem;
         }
         
-        h2 {
-            font-size: 28px;
-            margin: 0 0 15px 0;
+        #app-loader h1 {
+            font-size: 4rem;
+            margin: 0 0 10px 0;
+            color: #ff3333;
+            line-height: 1;
+            text-shadow: 0 0 10px rgba(255, 51, 51, 0.5);
+        }
+        
+        #app-loader h2 {
+            font-size: 1.5rem;
+            margin: 0 0 30px 0;
             font-weight: normal;
+            color: #ffffff;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
         }
         
-        p {
-            font-size: 16px;
+        #app-loader p {
+            font-size: 1rem;
             color: #a0a0a0;
             line-height: 1.5;
+            margin-bottom: 20px;
         }
         
-        #status {
+        #app-loader #status {
             margin-top: 30px;
-            font-size: 14px;
-            color: #4a9eff;
-            font-family: 'Courier New', monospace;
-            white-space: pre-line;
+            font-size: 0.9rem;
+            color: #00ff41;
+            font-family: 'JetBrains Mono', monospace;
+            white-space: pre-wrap;
+            background: #000;
+            padding: 20px;
+            border-left: 3px solid #00ff41;
+            min-height: 100px;
+        }
+
+        .blink {
+            animation: blink 1s step-end infinite;
+        }
+
+        @keyframes blink {
+            50% { opacity: 0; }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>403</h1>
-        <h2>Access Denied</h2>
-        <p>You don't have permission to access this resource.</p>
-        <div id="status">Checking access...</div>
-    </div>
-    
-    <script>
-        const statusElement = document.getElementById("status");
-        statusElement.textContent = "Checking access for loader and tester...";
+    <div id="app-landing">
 
-        function loadLua(path, label) {
-            return fetch(path, { cache: "no-store" })
-                .then(res => {
-                    if (!res.ok) {
-                        throw new Error("Failed to fetch " + label + " (" + res.status + ")");
-                    }
-                    return res.text();
-                })
-                .then(code => {
-                    return label + " loaded successfully (" + code.length + " bytes)";
-                })
-                .catch(err => {
-                    return label + " error: " + err.message;
+    <!-- Navbar -->
+    <nav>
+        <a href="#" class="logo">
+            <img src="LogoNoBackground.png" alt="Logo" onerror="this.style.display='none'">
+            Vorahub
+        </a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#pricing">Pricing</a>
+            <a href="#support">Support</a>
+        </div>
+        <a href="https://discord.gg/vorahub" class="btn btn-primary">Get Started</a>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <h1>Premium Roblox Script Hub<br><span class="gradient-text">Redefined</span></h1>
+        <p>Unlock advanced features, anti-detection systems, and lifetime updates. Join thousands of gamers dominating their favorite games with Vorahub.</p>
+        <div class="hero-btns">
+            <a href="https://discord.gg/vorahub" class="btn btn-primary">Get Premium</a>
+            <a href="https://discord.gg/vorahub" class="btn btn-outline">Join Discord</a>
+        </div>
+    </section>
+
+    <!-- Stats Section -->
+    <section class="stats">
+        <div class="stat-item">
+            <span class="stat-number">25K+</span>
+            <span class="stat-label">Active Users</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number">50+</span>
+            <span class="stat-label">Premium Scripts</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number">99.9%</span>
+            <span class="stat-label">Uptime</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number">24/7</span>
+            <span class="stat-label">Support</span>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="features">
+        <h2 class="section-title">Why Choose <span class="gradient-text">Vorahub?</span></h2>
+        <div class="features-grid">
+            <div class="feature-card">
+                <i class="fas fa-bolt feature-icon"></i>
+                <h3>Lightning Fast</h3>
+                <p>Optimized for maximum performance with minimal resource usage on your device.</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-shield-alt feature-icon"></i>
+                <h3>Anti-Detection</h3>
+                <p>Advanced protection system to keep your account safe from bans and detection.</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-sync-alt feature-icon"></i>
+                <h3>Auto Updates</h3>
+                <p>Always up-to-date with the latest game patches automatically. No manual downloads needed.</p>
+            </div>
+            <div class="feature-card">
+                <i class="fas fa-code feature-icon"></i>
+                <h3>Clean Code</h3>
+                <p>Well-structured and optimized Lua scripts for stability and reliability.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Pricing Section -->
+    <section id="pricing" class="pricing">
+        <h2 class="section-title">Simple <span class="gradient-text">Pricing</span></h2>
+        <div class="pricing-grid">
+            <!-- Free Plan -->
+            <div class="pricing-card">
+                <h3>Free</h3>
+                <div class="price">0 <span>IDR</span></div>
+                <p style="margin-bottom: 2rem; color: #888;">Get started for free</p>
+                <ul class="features-list">
+                    <li><i class="fas fa-check"></i> Basic Scripts Only</li>
+                    <li><i class="fas fa-check"></i> 1 Account Slot</li>
+                    <li><i class="fas fa-check"></i> 6 Hour Key Access</li>
+                    <li><i class="fas fa-check"></i> Community Support</li>
+                </ul>
+                <a href="#" class="btn btn-outline" style="width: 100%">Get Started</a>
+            </div>
+
+            <!-- Premium Plan -->
+            <div class="pricing-card premium">
+                <div class="badge">BEST VALUE</div>
+                <h3>Premium</h3>
+                <div class="price">35K <span>IDR</span></div>
+                <p style="margin-bottom: 2rem; color: #888;">Unlock all features</p>
+                <ul class="features-list">
+                    <li><i class="fas fa-check"></i> All Premium Scripts</li>
+                    <li><i class="fas fa-check"></i> 10 Account Slots</li>
+                    <li><i class="fas fa-check"></i> Lifetime Access</li>
+                    <li><i class="fas fa-check"></i> Priority Support</li>
+                    <li><i class="fas fa-check"></i> Auto Updates</li>
+                    <li><i class="fas fa-check"></i> Anti-Detection</li>
+                </ul>
+                <a href="https://discord.gg/vorahub" class="btn btn-primary" style="width: 100%">Buy Now</a>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer>
+        <div class="footer-logo">Vorahub</div>
+        <p>&copy; 2026 Vorahub. All rights reserved.</p>
+        <p style="margin-top: 10px; font-size: 0.8rem;">
+            <a href="#" style="color: #666; text-decoration: none; margin: 0 10px;">Terms of Service</a>
+            <a href="#" style="color: #666; text-decoration: none; margin: 0 10px;">Privacy Policy</a>
+        </p>
+    </footer>
+    </div> <!-- End app-landing -->
+
+    <!-- Loader/Tester Application -->
+    <div id="app-loader" style="display: none;">
+        <div class="container">
+            <h1>403</h1>
+            <h2>Access Denied</h2>
+            <p>You don't have permission to access this resource.</p>
+            <div id="status">Checking access...</div>
+        </div>
+    </div>
+
+    <script>
+        function handleRouting() {
+            const path = window.location.pathname;
+            const hash = window.location.hash;
+            const appLanding = document.getElementById('app-landing');
+            const appLoader = document.getElementById('app-loader');
+            
+            // Check if URL indicates loader or tester
+            // Supports: /loader, /tester, /loader.html, /tester.html, #/loader, #/tester, #loader, #tester
+            const isLoaderOrTester = 
+                path.includes('/loader') || 
+                path.includes('/tester') || 
+                hash === '#/loader' || 
+                hash === '#/tester' ||
+                hash === '#loader' || 
+                hash === '#tester';
+
+            if (isLoaderOrTester) {
+                appLanding.style.display = 'none';
+                appLoader.style.display = 'flex';
+                document.title = "Access Denied";
+                
+                // Initialize loader logic
+                const statusElement = document.getElementById("status");
+                statusElement.textContent = "Checking access for loader and tester...";
+
+                function loadLua(path, label) {
+                    return fetch(path, { cache: "no-store" })
+                        .then(res => {
+                            if (!res.ok) {
+                                throw new Error("Failed to fetch " + label + " (" + res.status + ")");
+                            }
+                            return res.text();
+                        })
+                        .then(code => {
+                            return label + " loaded successfully (" + code.length + " bytes)";
+                        })
+                        .catch(err => {
+                            return label + " error: " + err.message;
+                        });
+                }
+
+                Promise.all([
+                    loadLua("./loader/loader.lua", "Loader"),
+                    loadLua("./loader/tester.lua", "Tester")
+                ]).then(messages => {
+                    statusElement.textContent = messages.join("\n");
                 });
+            } else {
+                appLanding.style.display = 'block';
+                appLoader.style.display = 'none';
+                // Reset title if needed, or keep original from head
+            }
         }
 
-        Promise.all([
-            loadLua("./loader/loader.lua", "Loader"),
-            loadLua("./loader/tester.lua", "Tester")
-        ]).then(messages => {
-            statusElement.textContent = messages.join("\n");
-        });
+        // Run on load
+        window.addEventListener('load', handleRouting);
+        // Run on hash change
+        window.addEventListener('hashchange', handleRouting);
     </script>
 </body>
 </html>
