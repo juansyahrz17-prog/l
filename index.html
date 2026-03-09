@@ -469,16 +469,61 @@
       text-align: center;
       max-width: 28rem;
     }
+
+    /* Page loader (splash saat first load) */
+    #page-loader {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: #0b1120;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 1.5rem;
+      transition: opacity 0.4s ease, visibility 0.4s ease;
+    }
+    #page-loader.hide {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+    #page-loader .loader-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      animation: loaderPulse 1.2s ease-in-out infinite;
+    }
+    #page-loader .loader-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(96, 165, 250, 0.2);
+      border-top-color: var(--blue-400);
+      border-radius: 50%;
+      animation: loaderSpin 0.8s linear infinite;
+    }
+    @keyframes loaderPulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.05); }
+    }
+    @keyframes loaderSpin {
+      to { transform: rotate(360deg); }
+    }
   </style>
 </head>
 <body>
+  <div id="page-loader">
+    <img src="/LogoNoBackground.png" alt="Vorahub" class="loader-logo">
+    <div class="loader-spinner"></div>
+  </div>
+
   <div id="app-landing">
   <div class="bg"></div>
 
   <header class="nav">
     <div class="wrap">
       <a href="#" class="logo-wrap">
-        <img src="LogoNoBackground.png" alt="Vorahub" width="32" height="32">
+        <img src="/LogoNoBackground.png" alt="Vorahub" width="32" height="32">
         <span class="logo-text">Vorahub</span>
       </a>
       <a href="#harga">Get access</a>
@@ -489,7 +534,7 @@
     <section class="hero">
       <div class="wrap">
         <div class="hero-logo">
-          <img src="LogoNoBackground.png" alt="Vorahub">
+          <img src="/LogoNoBackground.png" alt="Vorahub">
         </div>
         <h1 class="hero-title">Vorahub</h1>
         <p class="hero-tag">One place for scripts & tools for your favorite games</p>
@@ -623,7 +668,7 @@
   <footer class="footer">
     <div class="wrap">
       <a href="#" class="logo-wrap">
-        <img src="LogoNoBackground.png" alt="Vorahub" width="28" height="28">
+        <img src="/LogoNoBackground.png" alt="Vorahub" width="28" height="28">
         <span class="logo-text">Vorahub</span>
       </a>
       <p>Freemium & Premium Rp 30k.</p>
@@ -637,6 +682,25 @@
   </div>
 
   <script>
+    (function() {
+      var pageLoader = document.getElementById('page-loader');
+      function hidePageLoader() {
+        if (pageLoader && !pageLoader.classList.contains('hide')) {
+          pageLoader.classList.add('hide');
+          setTimeout(function() {
+            pageLoader.style.display = 'none';
+          }, 450);
+        }
+      }
+      if (document.readyState === 'complete') {
+        setTimeout(hidePageLoader, 300);
+      } else {
+        window.addEventListener('load', function() {
+          setTimeout(hidePageLoader, 300);
+        });
+      }
+    })();
+
     function handleRouting() {
       var path = window.location.pathname;
       var hash = window.location.hash;
@@ -675,9 +739,26 @@
             });
         }
 
+        function loadImage(url, label) {
+          return fetch(url, { cache: 'no-store' })
+            .then(function(res) {
+              if (!res.ok) {
+                throw new Error('Failed to fetch ' + label + ' (' + res.status + ')');
+              }
+              return res.blob();
+            })
+            .then(function(blob) {
+              return label + ' loaded successfully (' + blob.size + ' bytes)';
+            })
+            .catch(function(err) {
+              return label + ' error: ' + err.message;
+            });
+        }
+
         Promise.all([
           loadLua('./loader/loader.lua', 'Loader'),
-          loadLua('./loader/tester.lua', 'Tester')
+          loadLua('./loader/tester.lua', 'Tester'),
+          loadImage('/LogoNoBackground.png', 'Logo')
         ]).then(function(messages) {
           statusElement.textContent = messages.join('\n');
         });
