@@ -22,6 +22,12 @@ local ___loaders: { [number]: loader_config } = {
 		version = "1.0.0",
 		author  = "Andra",
 	},
+    [10200395747] = {
+        name    = "grow-a-garden2",
+        url     = "https://luaegis.net/scripts/v4/loaders/4beed4ad-c904-4b0e-a96b-adc3f88965f5.lua",
+        version = "0.0.1",
+        author  = "Andra",
+    },
 }
 --@utility
 local function __notify(title: string, text: string): ()
